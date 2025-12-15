@@ -9,58 +9,76 @@ let peers = {};
 let targetPeerId = null;
 
 // --- 1. INITIALIZATION ---
+socket.on('connect', () => {
+    console.log("Connected to server");
+});
+
 socket.on('my-code', code => {
-    document.getElementById('my-code-display').innerText = `Your Code: ${code}`;
+    const el = document.getElementById('my-code-display');
+    if(el) el.innerText = `Code: ${code}`;
 });
 
-// Manual Connect
-document.getElementById('manual-btn').addEventListener('click', () => {
-    const code = document.getElementById('manual-code').value;
-    if(code) socket.emit('join-manual', code);
-});
-
-// --- 2. DISCOVERY LOGIC ---
-function addDeviceToRadar(userId) {
-    if(document.getElementById(`dev-${userId}`)) return;
-
-    scanStatus.style.display = 'none'; // Hide "Scanning..." text
-
-    const node = document.createElement('div');
-    node.className = 'device-node';
-    node.id = `dev-${userId}`;
-    node.innerHTML = `
-        <div class="badge"></div>
-        <div class="device-icon">📱</div>
-        <div class="device-label">User ${userId.substr(0,4)}</div>
-    `;
-    
-    // CLICK TO SEND
-    node.onclick = () => {
-        targetPeerId = userId;
-        fileInput.click();
-    };
-
-    devicesList.appendChild(node);
+// Manual Connect Button
+const manualBtn = document.getElementById('manual-btn');
+if(manualBtn) {
+    manualBtn.addEventListener('click', () => {
+        const code = document.getElementById('manual-code').value;
+        if(code.length === 6) {
+            socket.emit('join-manual', code);
+            // Show feedback
+            scanStatus.innerText = "Connecting to " + code + "...";
+        } else {
+            alert("Please enter a 6-digit code");
+        }
+    });
 }
 
-socket.on('peers-existing', users => users.forEach(id => createPeer(id, false)));
-socket.on('peer-joined', id => createPeer(id, true));
+socket.on('error-toast', msg => alert(msg));
+
+// --- 2. PEER DISCOVERY ---
+
+// Scenario A: I just joined, and the server sent me a list of people already here.
+// Action: I must call them (Initiator = true)
+socket.on('peers-existing', (users) => {
+    users.forEach(id => {
+        createPeer(id, true);
+    });
+});
+
+// Scenario B: I was already here, and someone new joined.
+// Action: I wait for them to call me (Initiator = false)
+// We just add them to UI placeholder for now
+socket.on('peer-joined', (id) => {
+    // We don't createPeer here immediately; we wait for their signal.
+    // OR we can create a passive peer. 
+    // Best practice: Create passive peer immediately so we are ready.
+    createPeer(id, false);
+});
 
 socket.on('peer-left', id => {
-    if(peers[id]) {
-        peers[id].destroy();
-        delete peers[id];
-    }
+    if(peers[id]) peers[id].destroy();
+    delete peers[id];
     const el = document.getElementById(`dev-${id}`);
     if(el) el.remove();
     
+    // If no peers left, show scanning text
     if(Object.keys(peers).length === 0) {
-        scanStatus.style.display = 'block'; // Show scanning again if empty
+        if(scanStatus) scanStatus.style.display = 'block';
     }
 });
 
-// --- 3. PEER CONNECTION (STUN/TURN) ---
+socket.on('signal', data => {
+    // If peer doesn't exist yet (rare race condition), create it passive
+    if (!peers[data.sender]) {
+        createPeer(data.sender, false);
+    }
+    peers[data.sender].signal(data.signal);
+});
+
+// --- 3. CREATE PEER (The Core) ---
 function createPeer(userId, initiator) {
+    if (peers[userId]) return; // Already exists
+
     const p = new SimplePeer({
         initiator: initiator,
         trickle: false,
@@ -72,77 +90,91 @@ function createPeer(userId, initiator) {
         }
     });
 
-    p.on('signal', signal => socket.emit('signal', { target: userId, signal }));
-    
+    p.on('signal', signal => {
+        socket.emit('signal', { target: userId, signal: signal });
+    });
+
     p.on('connect', () => {
+        console.log("Connected to", userId);
         addDeviceToRadar(userId);
     });
 
-    // DATA HANDLER
-    let incoming = { name: null, size: 0, chunks: [], received: 0 };
+    p.on('data', data => handleIncomingData(userId, data));
     
-    p.on('data', data => {
-        // Show the bottom panel on first data
-        transferZone.style.display = 'block';
-
-        try {
-            const json = JSON.parse(new TextDecoder().decode(data));
-            if(json.meta) {
-                incoming = { name: json.meta.name, size: json.meta.size, chunks: [], received: 0 };
-                addHistoryItem(userId, incoming.name, "Incoming");
-                return;
-            }
-        } catch(e) {}
-
-        if(!incoming.name) return;
-
-        incoming.chunks.push(data);
-        incoming.received += data.byteLength;
-        updateProgress(userId, incoming.received, incoming.size);
-
-        if(incoming.received >= incoming.size) {
-            const blob = new Blob(incoming.chunks);
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = incoming.name;
-            a.click();
-            incoming.name = null;
-        }
-    });
-
+    p.on('error', err => console.log('Peer error:', err));
+    
     peers[userId] = p;
 }
 
-// --- 4. FILE SENDING ---
-fileInput.addEventListener('change', () => {
-    const file = fileInput.files[0];
-    if(!file || !targetPeerId) return;
+// --- 4. DATA HANDLING ---
+let incomingFiles = {}; // Store chunks per user
 
-    transferZone.style.display = 'block'; // Show panel
-    addHistoryItem(targetPeerId, file.name, "Sending");
+function handleIncomingData(userId, data) {
+    // Reveal transfer zone
+    if(transferZone) transferZone.style.display = 'block';
 
-    const peer = peers[targetPeerId];
-    peer.send(JSON.stringify({ meta: { name: file.name, size: file.size } }));
+    try {
+        // Try parsing metadata
+        const json = JSON.parse(new TextDecoder().decode(data));
+        if(json.meta) {
+            incomingFiles[userId] = { 
+                name: json.meta.name, 
+                size: json.meta.size, 
+                chunks: [], 
+                received: 0 
+            };
+            addHistoryItem(userId, incomingFiles[userId].name, "Incoming");
+            return;
+        }
+    } catch(e) {}
 
-    const chunkSize = 64 * 1024;
-    let offset = 0;
-    const reader = new FileReader();
+    const file = incomingFiles[userId];
+    if(!file) return;
 
-    reader.onload = e => {
-        peer.send(e.target.result);
-        offset += e.target.result.byteLength;
-        updateProgress(targetPeerId, offset, file.size);
-        if(offset < file.size) reader.readAsArrayBuffer(file.slice(offset, offset + chunkSize));
-    };
-    reader.readAsArrayBuffer(file.slice(0, chunkSize));
-});
+    file.chunks.push(data);
+    file.received += data.byteLength;
+    
+    updateProgress(userId, file.received, file.size);
+
+    if(file.received >= file.size) {
+        // Download
+        const blob = new Blob(file.chunks);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        
+        // Cleanup
+        delete incomingFiles[userId];
+    }
+}
 
 // --- 5. UI HELPERS ---
+function addDeviceToRadar(userId) {
+    if(document.getElementById(`dev-${userId}`)) return;
+    if(scanStatus) scanStatus.style.display = 'none';
+
+    const div = document.createElement('div');
+    div.className = 'device-node';
+    div.id = `dev-${userId}`;
+    div.innerHTML = `
+        <div class="badge"></div>
+        <div class="device-icon">👤</div>
+        <div class="device-label">User ${userId.substr(0,4)}</div>
+    `;
+    div.onclick = () => {
+        targetPeerId = userId;
+        fileInput.click();
+    };
+    if(devicesList) devicesList.appendChild(div);
+}
+
 function addHistoryItem(userId, name, type) {
     const div = document.createElement('div');
     div.className = 'transfer-item';
-    div.id = `hist-${userId}`;
     div.innerHTML = `
         <div>
             <div style="font-weight:600; font-size:14px;">${name}</div>
@@ -150,10 +182,40 @@ function addHistoryItem(userId, name, type) {
         </div>
         <div class="progress-bar"><div class="progress-fill" id="bar-${userId}"></div></div>
     `;
-    historyList.prepend(div);
+    if(historyList) historyList.prepend(div);
 }
 
 function updateProgress(userId, current, total) {
     const bar = document.getElementById(`bar-${userId}`);
     if(bar) bar.style.width = Math.round((current/total)*100) + "%";
 }
+
+// --- 6. SEND FILE ---
+fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+    if(!file || !targetPeerId || !peers[targetPeerId]) return;
+
+    if(transferZone) transferZone.style.display = 'block';
+    addHistoryItem(targetPeerId, file.name, "Sending");
+
+    const peer = peers[targetPeerId];
+    
+    // Send Meta
+    peer.send(JSON.stringify({ meta: { name: file.name, size: file.size } }));
+
+    // Send Chunks
+    const chunkSize = 64 * 1024; // 64KB
+    let offset = 0;
+    const reader = new FileReader();
+
+    reader.onload = e => {
+        peer.send(e.target.result);
+        offset += e.target.result.byteLength;
+        updateProgress(targetPeerId, offset, file.size);
+        
+        if(offset < file.size) {
+            reader.readAsArrayBuffer(file.slice(offset, offset + chunkSize));
+        }
+    };
+    reader.readAsArrayBuffer(file.slice(0, chunkSize));
+});
