@@ -3,70 +3,48 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DropShare | Direct Connect</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <title>DropShare | Final Fix</title>
     <style>
-        body { background: #0F1115; color: white; font-family: 'Inter', sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 100vh; margin: 0; }
+        body { background: #111; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin: 0; min-height: 100vh; }
         
-        /* HEADER */
-        .header { width: 100%; padding: 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
-        .status { font-size: 12px; color: #10B981; }
+        .status-bar { width: 100%; padding: 10px; text-align: center; font-size: 12px; background: #222; color: #888; }
+        .online { color: #0f0; } .offline { color: #f00; }
 
-        /* MAIN CARD */
-        .card { background: #161920; padding: 30px; border-radius: 16px; border: 1px solid #333; margin-top: 40px; text-align: center; width: 90%; max-width: 400px; }
+        .card { background: #1a1a1a; padding: 30px; border-radius: 15px; margin-top: 50px; text-align: center; width: 90%; max-width: 400px; border: 1px solid #333; }
         
-        h1 { margin: 0 0 10px 0; font-size: 24px; }
-        .my-code { font-size: 40px; font-weight: 800; color: #3B82F6; letter-spacing: 2px; margin: 20px 0; display: block; }
+        .code-display { font-size: 48px; font-weight: bold; color: #3b82f6; margin: 20px 0; letter-spacing: 5px; }
         
-        /* INPUT AREA */
-        .input-group { display: flex; gap: 10px; margin-top: 20px; }
-        input { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #444; background: #000; color: white; text-align: center; font-size: 16px; }
-        button { background: #3B82F6; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; }
-        button:disabled { background: #555; cursor: not-allowed; }
-
-        /* FILE TRANSFER UI */
-        #transfer-area { display: none; width: 90%; max-width: 400px; margin-top: 20px; }
-        .upload-box { border: 2px dashed #444; padding: 30px; text-align: center; border-radius: 12px; cursor: pointer; }
-        .upload-box:hover { border-color: #3B82F6; background: rgba(59, 130, 246, 0.1); }
+        input { padding: 15px; width: 60%; border-radius: 8px; border: none; text-align: center; font-size: 18px; margin-top: 20px; }
+        button { padding: 15px 20px; border-radius: 8px; border: none; background: #3b82f6; color: white; font-weight: bold; cursor: pointer; margin-left: 10px; }
         
-        .status-msg { margin-top: 20px; color: #aaa; font-size: 14px; min-height: 20px; }
+        #transfer-area { display: none; margin-top: 20px; width: 90%; max-width: 400px; }
+        .box { border: 2px dashed #444; padding: 40px; text-align: center; border-radius: 10px; cursor: pointer; }
+        .box:hover { border-color: #3b82f6; background: #222; }
 
         #fileInput { display: none; }
     </style>
 </head>
 <body>
 
-<div class="header">
-    <div style="font-weight:bold;">DropShare</div>
-    <div class="status" id="net-status">Connecting...</div>
-</div>
+<div class="status-bar" id="status-bar">Connecting to Server...</div>
 
-<div class="card" id="connect-card">
-    <div>Your Code</div>
-    <span class="my-code" id="my-code">...</span>
+<div class="card" id="main-card">
+    <div>YOUR CODE</div>
+    <div class="code-display" id="my-code">...</div>
     
-    <div style="font-size: 14px; color: #888;">Enter friend's code to connect</div>
-    
-    <div class="input-group">
-        <input type="number" id="friend-code" placeholder="Enter 5-digit code">
-        <button id="connect-btn">Connect</button>
+    <div style="margin-top: 30px; border-top: 1px solid #333; padding-top: 20px;">
+        <p style="color:#aaa;">Connect to Friend</p>
+        <div style="display:flex; justify-content: center;">
+            <input type="number" id="friend-code" placeholder="Enter 4-digit Code">
+            <button id="connect-btn">GO</button>
+        </div>
+        <p id="error-msg" style="color: #ff4444; font-size: 14px; margin-top: 10px;"></p>
     </div>
-    
-    <div class="status-msg" id="status-msg"></div>
 </div>
 
 <div id="transfer-area">
-    <div class="upload-box" onclick="document.getElementById('fileInput').click()">
-        <div style="font-size:30px;">📂</div>
-        <div>Click to Send File</div>
+    <div class="box" onclick="document.getElementById('fileInput').click()">
+        <h1>📂</h1>
+        <p>Click to Send File</p>
     </div>
-    <div id="progress" style="margin-top:15px; color:#888; font-size:12px;"></div>
-</div>
-
-<input type="file" id="fileInput">
-
-<script src="/socket.io/socket.io.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
-<script src="client.js"></script>
-</body>
-</html>
+    <p id="progress-text" style="text
