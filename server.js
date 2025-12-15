@@ -3,49 +3,43 @@ const app = express();
 const http = require('http').Server(app);
 const io = require('socket.io')(http, {
     cors: { origin: "*" },
-    transports: ['websocket', 'polling'],
-    maxHttpBufferSize: 1e8, // Allow large packets just in case
-    pingTimeout: 60000 
+    transports: ['websocket', 'polling']
 });
 
-app.set('trust proxy', 1);
 app.use(express.static('public'));
 
+// CRITICAL: Keep track of every user by their code
+// Format: { "12345": "socket_id_here" }
+const activeUsers = {};
+
 io.on('connection', (socket) => {
-    // 1. SMART IP DETECTION
-    let ip = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
-    if (typeof ip === 'string' && ip.indexOf(',') > -1) ip = ip.split(',')[0].trim();
+    console.log(`User Connected: ${socket.id}`);
+
+    // 1. ASSIGN A SIMPLE CODE
+    const myCode = Math.floor(10000 + Math.random() * 90000).toString();
+    activeUsers[myCode] = socket.id;
     
-    // Create a simple "Network Room" name
-    const roomName = `network-${ip}`;
-    socket.join(roomName);
+    // Send code to user
+    socket.emit('init-info', { code: myCode });
+    
+    // 2. HANDLE MANUAL CONNECT
+    socket.on('connect-to-peer', (targetCode) => {
+        const targetSocketId = activeUsers[targetCode];
 
-    // 2. GENERATE SIMPLE CODE (Fallback)
-    const myCode = Math.floor(10000 + Math.random() * 90000).toString(); // 5 digits
-    socket.emit('init-info', { code: myCode, ip: ip });
-    socket.join(`manual-${myCode}`);
-
-    // 3. AUTO-DISCOVERY
-    const room = io.sockets.adapter.rooms.get(roomName);
-    const peers = room ? Array.from(room).filter(id => id !== socket.id) : [];
-
-    if (peers.length > 0) {
-        // Tell this user to call the existing users
-        socket.emit('peers-found', peers);
-    }
-
-    // 4. MANUAL CONNECT
-    socket.on('join-manual', (targetCode) => {
-        const targetRoom = io.sockets.adapter.rooms.get(`manual-${targetCode}`);
-        if (targetRoom && targetRoom.size > 0) {
-            const hostId = Array.from(targetRoom)[0];
-            socket.emit('peers-found', [hostId]); // Initiate call
+        if (targetSocketId) {
+            console.log(`Bridge: ${socket.id} connects to ${targetSocketId}`);
+            
+            // Tell the Target (Host) to call the Connector (Joiner)
+            io.to(targetSocketId).emit('peer-request', { 
+                peerId: socket.id 
+            });
+            
         } else {
-            socket.emit('error-toast', "Device not found. Check code.");
+            socket.emit('error-toast', "User not found! Check the code.");
         }
     });
 
-    // 5. SIGNALING
+    // 3. WEBRTC SIGNALING
     socket.on('signal', (data) => {
         io.to(data.target).emit('signal', {
             sender: socket.id,
@@ -53,8 +47,10 @@ io.on('connection', (socket) => {
         });
     });
 
+    // 4. CLEANUP
     socket.on('disconnect', () => {
-        socket.to(roomName).emit('peer-left', socket.id);
+        delete activeUsers[myCode];
+        // Notify any connected peers (optional enhancement)
     });
 });
 
