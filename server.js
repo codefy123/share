@@ -9,38 +9,28 @@ app.set('trust proxy', true);
 app.use(express.static('public'));
 
 io.on('connection', (socket) => {
-    // 1. Generate a random 4-digit code for this user (Fallback)
-    const myCode = Math.floor(1000 + Math.random() * 9000).toString();
-    socket.emit('my-code', myCode);
+    // 1. Generate unique 6-digit code for every user
+    const myCode = Math.floor(100000 + Math.random() * 900000).toString();
+    socket.join(myCode); // User sits in their own room waiting
+    socket.emit('init-info', { code: myCode, id: socket.id });
 
-    // 2. Try Auto-Discovery (IP Based)
-    let ip = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
-    if (ip.includes(',')) ip = ip.split(',')[0].trim();
-    if (ip.includes('::ffff:')) ip = ip.replace('::ffff:', '');
-    
-    // Join the "IP Room" automatically
-    socket.join(ip);
-    socket.join(myCode); // Also join a room named after their code
+    // 2. Handle Manual Join
+    socket.on('join-manual', (targetCode) => {
+        // Check if room exists
+        const room = io.sockets.adapter.rooms.get(targetCode);
+        
+        if (!room || room.size === 0) {
+            return socket.emit('error-msg', "Code not found or user offline.");
+        }
 
-    // Notify others on the same IP
-    const room = io.sockets.adapter.rooms.get(ip);
-    if(room && room.size > 1) {
-        // Tell everyone else "I am here"
-        socket.to(ip).emit('peer-found', { id: socket.id });
-        // Tell me "Who is already here"
-        const others = Array.from(room).filter(id => id !== socket.id);
-        socket.emit('existing-peers', others);
-    }
-
-    // 3. Manual Join (If user types a code)
-    socket.on('join-code', (code) => {
-        console.log(`${socket.id} joining room ${code}`);
-        socket.join(code);
-        // Notify the person who OWNS that code
-        io.to(code).emit('peer-found', { id: socket.id, initiator: true });
+        // Notify the HOST that someone is joining them
+        // The HOST will be the "Initiator" of the P2P call to ensure stability
+        socket.to(targetCode).emit('request-connection', { 
+            requesterId: socket.id 
+        });
     });
 
-    // 4. Signaling (The Handshake)
+    // 3. WebRTC Signaling (The Tunnel)
     socket.on('signal', (data) => {
         io.to(data.target).emit('signal', {
             sender: socket.id,
@@ -48,10 +38,11 @@ io.on('connection', (socket) => {
         });
     });
 
+    // 4. Cleanup
     socket.on('disconnect', () => {
-        io.emit('peer-left', socket.id); // Broadcast to be safe
+        // In a real app, we might notify peers here
     });
 });
 
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+http.listen(PORT, () => console.log(`Server Ready on port ${PORT}`));
