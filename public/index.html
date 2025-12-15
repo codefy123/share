@@ -5,54 +5,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AirDrop Web</title>
     <style>
-        body { font-family: 'Inter', sans-serif; background: #0f0f13; color: white; text-align: center; margin: 0; padding: 20px; }
-        h1 { background: -webkit-linear-gradient(#00d2ff, #3a7bd5); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        body { font-family: 'Inter', sans-serif; background: #0f0f13; color: white; text-align: center; padding: 20px; }
         
-        .radar-area { min-height: 250px; display: flex; justify-content: center; align-items: center; gap: 30px; flex-wrap: wrap; margin-top: 50px; }
+        /* Debug Info */
+        .debug-info { background: #1c1c21; color: #888; padding: 10px; font-size: 12px; border-radius: 8px; display: inline-block; margin-bottom: 20px; border: 1px solid #333; }
+        .highlight { color: #00d2ff; font-weight: bold; }
+
+        .radar-area { min-height: 250px; display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-top: 20px; }
         
         .device {
             width: 100px; height: 100px; background: #2b2b36; border-radius: 18px;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            cursor: pointer; transition: all 0.2s ease; border: 2px solid transparent; animation: popIn 0.3s ease;
+            cursor: pointer; border: 2px solid transparent; transition: 0.2s;
         }
-        .device:hover { transform: translateY(-5px); border-color: #00d2ff; background: #353542; }
-        .device svg { width: 40px; height: 40px; fill: #eee; margin-bottom: 8px; }
-        .device span { font-size: 12px; color: #888; }
+        .device:hover { border-color: #00d2ff; background: #353542; }
+        .device svg { width: 40px; height: 40px; fill: #eee; margin-bottom: 5px; }
         
-        @keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }
         .searching { color: #555; font-style: italic; animation: pulse 2s infinite; }
         @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
-
-        /* Debug Status Bar */
-        #status-bar { position: fixed; bottom: 0; left: 0; width: 100%; padding: 10px; font-size: 12px; background: #1c1c21; color: #666; display: flex; justify-content: center; gap: 15px; }
-        .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: #444; }
-        .active { background: #28a745; box-shadow: 0 0 10px #28a745; }
-        .waiting { background: #ffc107; }
-        .error { background: #dc3545; }
 
         input[type="file"] { display: none; }
     </style>
 </head>
 <body>
 
-    <h1>🚀 AirDrop Web</h1>
-    <p>Open this on another device to see it here.</p>
+    <h2>🚀 Shared Network</h2>
+    
+    <div class="debug-info">
+        My IP (Room ID): <span id="my-ip" class="highlight">Connecting...</span>
+    </div>
 
     <div class="radar-area" id="radar">
-        <div class="searching" id="scan-msg">Scanning local network...</div>
+        <div class="searching" id="scan-msg">Looking for devices on same IP...</div>
     </div>
 
     <input type="file" id="fileInput">
-
-    <div id="status-bar">
-        <div style="display:flex; align-items:center; gap:5px;">
-            <span id="server-dot" class="dot error"></span> Server
-        </div>
-        <div style="display:flex; align-items:center; gap:5px;">
-            <span id="peer-dot" class="dot"></span> P2P Status
-        </div>
-        <div id="my-id" style="margin-left: 20px;">ID: ...</div>
-    </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
@@ -62,25 +49,17 @@
         const radar = document.getElementById('radar');
         const scanMsg = document.getElementById('scan-msg');
         const fileInput = document.getElementById('fileInput');
-        const serverDot = document.getElementById('server-dot');
-        const peerDot = document.getElementById('peer-dot');
-        const myIdDisplay = document.getElementById('my-id');
-
+        const ipDisplay = document.getElementById('my-ip');
+        
         let peers = {};
         let targetId = null;
 
-        // --- 1. CONNECTION DEBUGGING ---
-        socket.on('connect', () => {
-            serverDot.className = "dot waiting"; // Connected to server
-            myIdDisplay.innerText = `ID: ${socket.id.substring(0,5)}`;
-            console.log("Connected to server");
+        // 1. Show the IP the server sees
+        socket.on('your-ip', (ip) => {
+            ipDisplay.innerText = ip;
         });
 
-        socket.on('disconnect', () => {
-            serverDot.className = "dot error";
-        });
-
-        // --- 2. PEER DISCOVERY ---
+        // 2. Peer Logic
         function addPeerUI(id) {
             scanMsg.style.display = 'none';
             if(document.getElementById(id)) return;
@@ -90,7 +69,7 @@
             div.id = id;
             div.innerHTML = `
                 <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
-                <span>User ${id.substr(0,4)}</span>
+                <span>User</span>
             `;
             div.onclick = () => { targetId = id; fileInput.click(); };
             radar.appendChild(div);
@@ -104,49 +83,35 @@
             if(radar.children.length <= 1) scanMsg.style.display = 'block';
         });
 
-        // --- 3. FILE TRANSFER ---
+        // 3. File Transfer Logic (Same as before)
         fileInput.addEventListener('change', () => {
             const file = fileInput.files[0];
             if (!file || !targetId) return;
 
             const p = new SimplePeer({ initiator: true, trickle: false });
-            
-            p.on('signal', data => {
-                socket.emit('signal', { target: targetId, signal: data });
-            });
-
+            p.on('signal', data => socket.emit('signal', { target: targetId, signal: data }));
             p.on('connect', () => {
-                peerDot.className = "dot active"; // Green for P2P connection
                 p.send(JSON.stringify({ name: file.name, size: file.size }));
                 p.send(file);
             });
-
             peers[targetId] = p;
         });
 
         socket.on('signal', data => {
             if(!peers[data.sender]) {
                 const p = new SimplePeer({ initiator: false, trickle: false });
-                
-                p.on('signal', signal => {
-                    socket.emit('signal', { target: data.sender, signal: signal });
-                });
-
-                p.on('connect', () => peerDot.className = "dot active");
-
+                p.on('signal', signal => socket.emit('signal', { target: data.sender, signal: signal }));
                 p.on('data', chunk => {
                     try {
                         const meta = JSON.parse(new TextDecoder().decode(chunk));
-                        if(meta.name) return; // Just metadata
+                        if(meta.name) return;
                     } catch(e) {}
-                    
                     const blob = new Blob([chunk]);
                     const link = document.createElement('a');
                     link.href = URL.createObjectURL(blob);
-                    link.download = "received_file"; // Simple name for now
+                    link.download = "received_file";
                     document.body.appendChild(link);
                     link.click();
-                    alert("File Received!");
                 });
                 peers[data.sender] = p;
             }
