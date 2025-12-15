@@ -1,56 +1,63 @@
 const express = require('express');
 const app = express();
 const http = require('http').Server(app);
-const io = require('socket.io')(http);
+const io = require('socket.io')(http, {
+    cors: { origin: "*" } // Allow all connections to fix potential blocks
+});
 const path = require('path');
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Group users by their Public IP Address
-const usersByIp = {};
+// Helper: Get a clean IP address
+function getClientIp(socket) {
+    const header = socket.handshake.headers['x-forwarded-for'];
+    let ip = header ? header.split(',')[0] : socket.handshake.address;
+    
+    // Clean up IPv6 prefixes (::ffff:) so 127.0.0.1 matches localhost
+    if (ip.includes('::ffff:')) {
+        ip = ip.replace('::ffff:', '');
+    }
+    return ip;
+}
 
 io.on('connection', (socket) => {
-    // 1. Detect the user's Public IP
-    // (This works even on cloud hosting like Render/Heroku)
-    let clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
-    
-    // Normalize IP (handle multiple IPs in header)
-    if (clientIp.indexOf(',') > -1) {
-        clientIp = clientIp.split(',')[0];
-    }
+    const ip = getClientIp(socket);
+    console.log(`User connected: ${socket.id} | IP: ${ip}`);
 
-    console.log(`User ${socket.id} connected from IP: ${clientIp}`);
+    // Join a room based on IP
+    socket.join(ip);
 
-    // 2. Join a "Room" based on IP
-    socket.join(clientIp);
+    // Notify others on THIS IP that someone new is here
+    socket.to(ip).emit('peer-joined', { id: socket.id });
 
-    // 3. Notify others in this IP-Room that a new peer joined
-    socket.to(clientIp).emit('peer-joined', {
-        id: socket.id
-    });
-
-    // 4. Send list of existing peers to the new user
-    const room = io.sockets.adapter.rooms.get(clientIp);
+    // Send the user the list of people ALREADY in the room
+    const room = io.sockets.adapter.rooms.get(ip);
     if (room) {
-        const otherUsers = Array.from(room).filter(id => id !== socket.id);
-        socket.emit('peers-existing', otherUsers);
+        const others = Array.from(room).filter(id => id !== socket.id);
+        if (others.length > 0) {
+            console.log(`Found ${others.length} existing peers for ${socket.id}`);
+            socket.emit('peers-existing', others);
+        }
     }
 
-    // 5. Handle WebRTC Signals (Offer/Answer/ICE)
+    // Handle Signals (Handshake)
     socket.on('signal', (data) => {
+        console.log(`Signal from ${socket.id} to ${data.target}`);
         io.to(data.target).emit('signal', {
             sender: socket.id,
             signal: data.signal
         });
     });
 
-    // 6. Cleanup
     socket.on('disconnect', () => {
-        socket.to(clientIp).emit('peer-left', socket.id);
+        console.log(`User disconnected: ${socket.id}`);
+        socket.to(ip).emit('peer-left', socket.id);
     });
 });
 
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => {
-    console.log(`Production Server running on port ${PORT}`);
+    console.log(`\n--- SERVER RUNNING ON PORT ${PORT} ---`);
+    console.log(`1. If testing locally, ensure both devices use the LAN IP (e.g. 192.168.1.5:3000)`);
+    console.log(`2. Do NOT mix 'localhost' and '192.168.x.x'`);
 });
