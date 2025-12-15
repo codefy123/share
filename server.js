@@ -2,47 +2,55 @@ const express = require('express');
 const app = express();
 const http = require('http').Server(app);
 const io = require('socket.io')(http, {
-    cors: { origin: "*" } // Allow all connections to fix potential blocks
+    cors: { origin: "*" }
 });
 const path = require('path');
 
+// TRUST PROXY: Required for Render/Heroku/Vercel to get real IPs
+app.set('trust proxy', true);
+
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Helper: Get a clean IP address
-function getClientIp(socket) {
-    const header = socket.handshake.headers['x-forwarded-for'];
-    let ip = header ? header.split(',')[0] : socket.handshake.address;
+// Helper to get the clean Public IP
+function getPublicIp(socket) {
+    let ip = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
     
-    // Clean up IPv6 prefixes (::ffff:) so 127.0.0.1 matches localhost
+    // If multiple IPs (e.g. "client, proxy1, proxy2"), take the first one
+    if (ip && ip.indexOf(',') > -1) {
+        ip = ip.split(',')[0].trim();
+    }
+    
+    // Clean IPv6 prefix if present
     if (ip.includes('::ffff:')) {
         ip = ip.replace('::ffff:', '');
     }
+    
     return ip;
 }
 
 io.on('connection', (socket) => {
-    const ip = getClientIp(socket);
-    console.log(`User connected: ${socket.id} | IP: ${ip}`);
+    const userIp = getPublicIp(socket);
+    
+    console.log(`User: ${socket.id} | Detected IP: ${userIp}`);
 
-    // Join a room based on IP
-    socket.join(ip);
+    // Join a room specifically for this Public IP
+    socket.join(userIp);
+    
+    // Send the detected IP back to the user (For Debugging UI)
+    socket.emit('your-ip', userIp);
 
-    // Notify others on THIS IP that someone new is here
-    socket.to(ip).emit('peer-joined', { id: socket.id });
+    // Notify others in this room (Same Wi-Fi/Hotspot)
+    socket.to(userIp).emit('peer-joined', { id: socket.id });
 
-    // Send the user the list of people ALREADY in the room
-    const room = io.sockets.adapter.rooms.get(ip);
+    // Send list of existing users
+    const room = io.sockets.adapter.rooms.get(userIp);
     if (room) {
         const others = Array.from(room).filter(id => id !== socket.id);
-        if (others.length > 0) {
-            console.log(`Found ${others.length} existing peers for ${socket.id}`);
-            socket.emit('peers-existing', others);
-        }
+        socket.emit('peers-existing', others);
     }
 
-    // Handle Signals (Handshake)
+    // Signaling Logic
     socket.on('signal', (data) => {
-        console.log(`Signal from ${socket.id} to ${data.target}`);
         io.to(data.target).emit('signal', {
             sender: socket.id,
             signal: data.signal
@@ -50,14 +58,9 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        console.log(`User disconnected: ${socket.id}`);
-        socket.to(ip).emit('peer-left', socket.id);
+        socket.to(userIp).emit('peer-left', socket.id);
     });
 });
 
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
-    console.log(`\n--- SERVER RUNNING ON PORT ${PORT} ---`);
-    console.log(`1. If testing locally, ensure both devices use the LAN IP (e.g. 192.168.1.5:3000)`);
-    console.log(`2. Do NOT mix 'localhost' and '192.168.x.x'`);
-});
+http.listen(PORT, () => console.log(`Server running on port ${PORT}`));
