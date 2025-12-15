@@ -3,68 +3,63 @@ const app = express();
 const http = require('http').Server(app);
 const io = require('socket.io')(http, {
     cors: { origin: "*" },
-    pingTimeout: 60000, // Keep connection alive longer
+    pingTimeout: 60000,
 });
 
-// 1. TRUST PROXY - CRITICAL FOR RENDER/CLOUD
+// 1. TRUST PROXY: Essential for Render/Heroku to see real IPs
 app.set('trust proxy', 1); 
 
 app.use(express.static('public'));
 
 io.on('connection', (socket) => {
-    // 2. ROBUST IP DETECTION (The Snapdrop Logic)
+    // 2. GET REAL IP ADDRESS (Fix for Cloud Hosting)
+    // Render sends the real IP in the 'x-forwarded-for' header.
     let ip = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
     
-    // If multiple IPs (proxy chain), take the first one (the real client)
+    // If multiple IPs (proxy chain), take the first one
     if (typeof ip === 'string' && ip.indexOf(',') > -1) {
         ip = ip.split(',')[0].trim();
     }
     
-    // Clean IPv6
+    // Clean up IPv6 prefix if present
     if (ip.includes('::ffff:')) ip = ip.replace('::ffff:', '');
 
-    // console.log(`New User: ${socket.id} | IP: ${ip}`);
+    console.log(`User connected: ${socket.id} | Real IP: ${ip}`);
 
-    // 3. AUTO-JOIN "IP ROOM"
+    // 3. AUTO-JOIN ROOM (Snapdrop Style)
+    // Users on the same Wi-Fi will have the same Public IP, so they join the same room.
     const roomName = `room-${ip}`;
     socket.join(roomName);
 
-    // Generate a fallback manual code
-    const manualCode = Math.floor(100000 + Math.random() * 900000).toString();
-    socket.join(manualCode); // Also join a room for the code
-    socket.emit('my-code', manualCode);
+    // Generate a 4-digit manual code (Fallback)
+    const myCode = Math.floor(1000 + Math.random() * 9000).toString();
+    socket.emit('my-code', myCode);
+    socket.join(`manual-${myCode}`); // Join a private room for manual code
 
-    // 4. INSTANT DISCOVERY LOGIC
+    // 4. CHECK FOR PEERS
     const room = io.sockets.adapter.rooms.get(roomName);
-    const peersInRoom = room ? Array.from(room).filter(id => id !== socket.id) : [];
+    const peers = room ? Array.from(room).filter(id => id !== socket.id) : [];
 
-    if (peersInRoom.length > 0) {
-        // Step A: Tell the NEW user to initiate connections to existing peers
-        socket.emit('peers-existing', peersInRoom);
-        
-        // Step B: Tell existing peers that a new user joined (Prepare to receive)
-        socket.to(roomName).emit('peer-joined', socket.id);
+    if (peers.length > 0) {
+        console.log(`Found ${peers.length} peers for ${socket.id}`);
+        // Tell the NEW user to call the EXISTING users
+        socket.emit('peers-existing', peers);
     }
 
-    // 5. MANUAL CONNECTION LOGIC
+    // 5. MANUAL CONNECT HANDLER
     socket.on('join-manual', (targetCode) => {
-        const targetRoom = io.sockets.adapter.rooms.get(targetCode);
-        
+        const targetRoom = io.sockets.adapter.rooms.get(`manual-${targetCode}`);
         if (targetRoom && targetRoom.size > 0) {
-            // Get the socket ID of the host (owner of the code)
-            const hostId = Array.from(targetRoom)[0]; // Simplified for 1-to-1
-            
-            // Tell the Joiner (me) to call the Host
-            socket.emit('peers-existing', [hostId]);
-            
-            // Tell the Host someone is joining
-            io.to(hostId).emit('peer-joined', socket.id);
+            const targetId = Array.from(targetRoom)[0];
+            console.log(`Manual connection: ${socket.id} -> ${targetId}`);
+            // Tell Me (Joiner) to call Him (Host)
+            socket.emit('peers-existing', [targetId]);
         } else {
-            socket.emit('error-toast', 'ID not found or user offline');
+            socket.emit('error-toast', "Device not found. Check the code.");
         }
     });
 
-    // 6. SIGNALING RELAY
+    // 6. SIGNALING (The Handshake)
     socket.on('signal', (data) => {
         io.to(data.target).emit('signal', {
             sender: socket.id,
@@ -78,4 +73,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => console.log(`Server running on ${PORT}`));
+http.listen(PORT, () => console.log(`🚀 Server Running on Port ${PORT}`));
