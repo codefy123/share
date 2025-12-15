@@ -2,93 +2,158 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DropShare Pro</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DropShare | Secure Transfer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        :root { --bg: #09090b; --surface: #18181b; --primary: #3b82f6; --text: #fff; --error: #ef4444; --success: #22c55e; }
-        body { margin: 0; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-
-        /* STATUS BAR (CRITICAL) */
-        #connection-status {
-            background: var(--error); color: white; text-align: center; padding: 5px; font-size: 12px; font-weight: bold; display: none;
+        :root {
+            --bg: #0F1115;
+            --surface: #161920;
+            --surface-hover: #1C2028;
+            --primary: #3B82F6;
+            --primary-hover: #2563EB;
+            --text-main: #FFFFFF;
+            --text-muted: #9CA3AF;
+            --border: #2D3340;
+            --success: #10B981;
         }
 
-        /* NAVBAR */
-        nav { padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #27272a; background: var(--surface); }
-        .logo { font-weight: 800; font-size: 18px; }
-        .my-code { font-family: monospace; background: #27272a; padding: 6px 12px; border-radius: 6px; font-weight: bold; color: var(--primary); border: 1px solid #333; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { margin: 0; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text-main); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
-        /* RADAR */
-        .radar-container { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
-        .scan-text { margin-top: 20px; color: #666; font-size: 14px; animation: pulse 2s infinite; }
-        @keyframes pulse { 50% { opacity: 0.5; } }
+        /* HEADER */
+        header {
+            padding: 16px 24px; border-bottom: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center; background: var(--surface);
+        }
+        .brand { font-weight: 700; font-size: 18px; letter-spacing: -0.5px; display: flex; align-items: center; gap: 8px; }
+        .brand span { color: var(--primary); }
+        .net-id { font-size: 11px; color: var(--text-muted); background: #222; padding: 4px 8px; border-radius: 4px; border: 1px solid #333; }
 
-        /* DEVICES */
-        .device-grid { display: flex; gap: 20px; z-index: 10; flex-wrap: wrap; justify-content: center; width: 100%; padding: 20px; }
-        .device { 
-            width: 100px; height: 110px; background: var(--surface); border: 2px solid #333; border-radius: 16px;
-            display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s;
-        }
-        .device:hover { border-color: var(--primary); background: #27272a; }
-        .device-icon { font-size: 32px; margin-bottom: 5px; }
-        .device-name { font-size: 12px; font-weight: 600; }
+        /* MAIN LAYOUT */
+        main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 24px; overflow-y: auto; }
 
-        /* MANUAL INPUT */
-        .manual-box { position: absolute; bottom: 30px; display: flex; gap: 8px; z-index: 20; background: var(--surface); padding: 10px; border-radius: 12px; border: 1px solid #333; }
-        input { background: #000; border: 1px solid #444; color: white; padding: 10px; border-radius: 6px; outline: none; width: 120px; text-align: center; }
-        button { background: var(--primary); border: none; color: white; padding: 10px 15px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+        /* SCANNING CARD */
+        .scan-card {
+            background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+            width: 100%; max-width: 480px; padding: 32px; text-align: center;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+        }
 
-        /* UPLOAD & TRANSFER UI */
-        #upload-overlay {
-            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8); z-index: 100; align-items: center; justify-content: center;
+        .radar-animation {
+            width: 80px; height: 80px; background: rgba(59, 130, 246, 0.1); border-radius: 50%;
+            margin: 0 auto 24px auto; position: relative; display: flex; align-items: center; justify-content: center;
         }
-        .upload-card {
-            background: var(--surface); width: 90%; max-width: 400px; padding: 20px; border-radius: 16px; border: 1px solid #333;
+        .radar-pulse {
+            position: absolute; width: 100%; height: 100%; border-radius: 50%; border: 1px solid var(--primary);
+            animation: pulse 2s infinite; opacity: 0;
         }
-        .transfer-item { 
-            background: #000; padding: 10px; border-radius: 8px; margin-top: 10px; border: 1px solid #333;
-        }
-        .progress-bar { height: 4px; background: #333; width: 100%; border-radius: 2px; margin-top: 8px; }
-        .progress-fill { height: 100%; background: var(--success); width: 0%; transition: width 0.2s; }
+        @keyframes pulse { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(1.6); opacity: 0; } }
         
+        h2 { margin: 0 0 8px 0; font-size: 20px; font-weight: 600; }
+        p { margin: 0 0 24px 0; color: var(--text-muted); font-size: 14px; line-height: 1.5; }
+
+        /* MANUAL INPUT GROUP */
+        .join-group { display: flex; gap: 12px; margin-top: 24px; border-top: 1px solid var(--border); padding-top: 24px; }
+        input {
+            background: #000; border: 1px solid var(--border); color: white; padding: 0 16px;
+            border-radius: 8px; flex: 1; height: 44px; outline: none; font-size: 14px;
+        }
+        input:focus { border-color: var(--primary); }
+        .btn-primary {
+            background: var(--primary); color: white; border: none; padding: 0 20px;
+            border-radius: 8px; font-weight: 600; cursor: pointer; height: 44px; font-size: 14px;
+        }
+        .btn-primary:active { transform: translateY(1px); }
+
+        /* DEVICE LIST */
+        .device-list {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px;
+            width: 100%; margin-top: 20px;
+        }
+        .device-item {
+            background: #252932; border: 1px solid var(--border); border-radius: 12px;
+            padding: 16px; cursor: pointer; transition: 0.2s; position: relative;
+        }
+        .device-item:hover { border-color: var(--primary); background: var(--surface-hover); }
+        .device-icon { font-size: 24px; margin-bottom: 8px; }
+        .device-name { font-size: 12px; font-weight: 500; color: var(--text-main); }
+        .status-dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; position: absolute; top: 12px; right: 12px; }
+
+        /* FILE TRANSFER PANEL (Bottom Sheet) */
+        #transfer-panel {
+            position: fixed; bottom: 0; left: 0; width: 100%; background: var(--surface);
+            border-top: 1px solid var(--border); padding: 20px; transform: translateY(100%);
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); z-index: 100;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.3);
+        }
+        #transfer-panel.active { transform: translateY(0); }
+
+        .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .panel-title { font-weight: 600; font-size: 16px; }
+        .close-btn { background: none; border: none; color: var(--text-muted); font-size: 24px; cursor: pointer; padding: 0; }
+
+        .upload-area {
+            border: 2px dashed var(--border); border-radius: 12px; padding: 32px;
+            text-align: center; cursor: pointer; margin-bottom: 20px; transition: 0.2s;
+        }
+        .upload-area:hover { border-color: var(--primary); background: rgba(59, 130, 246, 0.05); }
+
+        /* TRANSFER LIST ITEMS */
+        .transfer-item {
+            display: flex; align-items: center; gap: 12px; padding: 12px;
+            background: #000; border-radius: 8px; margin-bottom: 8px; border: 1px solid var(--border);
+        }
+        .file-icon { font-size: 20px; }
+        .file-details { flex: 1; min-width: 0; }
+        .filename { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .filesize { font-size: 11px; color: var(--text-muted); }
+        .progress-track { width: 100%; height: 4px; background: #222; border-radius: 2px; margin-top: 6px; }
+        .progress-fill { width: 0%; height: 100%; background: var(--primary); border-radius: 2px; transition: width 0.1s linear; }
+
         #fileInput { display: none; }
     </style>
 </head>
 <body>
 
-<div id="connection-status">🔴 Disconnected from Server - Check Internet</div>
+<header>
+    <div class="brand">⚡ Drop<span>Share</span></div>
+    <div class="net-id" id="network-id">Connecting...</div>
+</header>
 
-<nav>
-    <div class="logo">DropShare</div>
-    <div class="my-code" id="my-code">...</div>
-</nav>
-
-<div class="radar-container" id="radar">
-    <div id="device-list" class="device-grid"></div>
-    <div class="scan-text" id="scan-msg">Scanning for devices...</div>
-
-    <div class="manual-box">
-        <input type="number" id="manual-input" placeholder="Enter Code">
-        <button id="manual-btn">Connect</button>
-    </div>
-</div>
-
-<div id="upload-overlay">
-    <div class="upload-card">
-        <div style="display:flex; justify-content:space-between; margin-bottom:20px;">
-            <h3>File Transfer</h3>
-            <button onclick="closeOverlay()" style="background:none; border:none; color:white; font-size:20px; cursor:pointer;">×</button>
+<main>
+    <div class="scan-card" id="scan-view">
+        <div class="radar-animation">
+            <div class="radar-pulse"></div>
+            <div style="font-size:24px;">📡</div>
         </div>
         
-        <div onclick="document.getElementById('fileInput').click()" style="border: 2px dashed #444; padding: 30px; text-align: center; cursor: pointer; border-radius: 10px;">
-            <div style="font-size: 30px;">📂</div>
-            <div>Click to Send File</div>
-        </div>
+        <h2>Looking for nearby devices...</h2>
+        <p>Ensure both devices are on the same Wi-Fi/Hotspot.<br>Your Code: <strong id="my-code" style="color:white;">...</strong></p>
 
-        <div id="transfer-list" style="margin-top: 20px; max-height: 200px; overflow-y: auto;"></div>
+        <div id="device-container" class="device-list">
+            </div>
+
+        <div class="join-group">
+            <input type="number" id="manual-input" placeholder="Enter Friend's Code">
+            <button class="btn-primary" id="manual-btn">Connect</button>
+        </div>
     </div>
+</main>
+
+<div id="transfer-panel">
+    <div class="panel-header">
+        <div class="panel-title">File Transfer</div>
+        <button class="close-btn" onclick="togglePanel(false)">×</button>
+    </div>
+
+    <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+        <div style="font-size: 24px; margin-bottom: 8px;">📂</div>
+        <div style="font-size: 14px; font-weight: 500;">Tap to Upload File</div>
+        <div style="font-size: 12px; color: var(--text-muted);">or drag and drop</div>
+    </div>
+
+    <div id="transfer-list" style="max-height: 200px; overflow-y: auto;"></div>
 </div>
 
 <input type="file" id="fileInput">
@@ -97,7 +162,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
 <script src="client.js"></script>
 <script>
-    function closeOverlay() { document.getElementById('upload-overlay').style.display = 'none'; }
+    function togglePanel(show) {
+        document.getElementById('transfer-panel').classList.toggle('active', show);
+    }
 </script>
 </body>
 </html>
