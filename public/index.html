@@ -145,7 +145,16 @@
     </div>
 </div>
 
-<input type="file" id="fileInput" style="display:none">
+<div class="card" id="upload-area" onclick="document.getElementById('fileInput').click()" style="cursor: pointer; border: 2px dashed var(--border); text-align: center; align-items: center; justify-content: center; min-height: 150px;">
+            <div style="font-size: 40px;">📂</div>
+            <div style="font-weight: 600;">Click to Upload File</div>
+            <div style="font-size: 12px; color: var(--text-dim);">or Drag and Drop here</div>
+        </div>
+
+        <div class="card" style="flex:1;">
+            <div class="section-title">Transfer Activity</div>
+            <div id="transfer-list" class="transfer-list"></div>
+        </div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
@@ -153,3 +162,4 @@
 
 </body>
 </html>
+
