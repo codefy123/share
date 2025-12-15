@@ -1,68 +1,55 @@
-// FORCE WEBSOCKET TO PREVENT NETWORK ERRORS
-const socket = io({
-    transports: ['websocket', 'polling'],
-    reconnection: true
-});
+const socket = io({ transports: ['websocket', 'polling'] });
 
-const deviceList = document.getElementById('device-list');
-const scanMsg = document.getElementById('scan-msg');
-const statusBanner = document.getElementById('connection-status');
-const uploadOverlay = document.getElementById('upload-overlay');
+const deviceContainer = document.getElementById('device-container');
 const transferList = document.getElementById('transfer-list');
 const fileInput = document.getElementById('fileInput');
 
 let peers = {};
 let targetPeerId = null;
 
-// --- 1. CONNECTION HEALTH CHECK ---
+// --- INITIALIZATION ---
 socket.on('connect', () => {
-    statusBanner.style.display = 'none';
-    console.log('Connected to Server');
+    document.getElementById('network-id').innerText = "Online";
+    document.getElementById('network-id').style.color = "#10B981";
 });
 
 socket.on('disconnect', () => {
-    statusBanner.style.display = 'block';
-    statusBanner.innerText = "🔴 Disconnected - Check Internet Connection";
+    document.getElementById('network-id').innerText = "Offline";
+    document.getElementById('network-id').style.color = "#EF4444";
 });
 
-socket.on('connect_error', () => {
-    statusBanner.style.display = 'block';
-});
-
-socket.on('my-code', code => {
-    document.getElementById('my-code').innerText = `Code: ${code}`;
+socket.on('init-info', data => {
+    document.getElementById('my-code').innerText = data.code;
+    document.getElementById('network-id').innerText = `IP: ${data.ip}`; // Debug info for user
 });
 
 socket.on('error-toast', msg => alert(msg));
 
-// --- 2. MANUAL CONNECT ---
+// --- CONNECT LOGIC ---
 document.getElementById('manual-btn').addEventListener('click', () => {
     const code = document.getElementById('manual-input').value;
-    if (code.length === 6) {
+    if (code.length === 5) {
         socket.emit('join-manual', code);
-        scanMsg.innerText = "Searching for code " + code + "...";
     } else {
-        alert("Please enter a 6-digit code");
+        alert("Please enter a valid 5-digit code");
     }
 });
 
-// --- 3. PEER DISCOVERY HANDLERS ---
-socket.on('peers-existing', users => {
-    users.forEach(id => createPeer(id, true)); // I call them
-});
-
-socket.on('peer-joined', id => {
-    createPeer(id, false); // I wait for them
-});
+// --- PEER DISCOVERY ---
+socket.on('peers-found', users => users.forEach(id => createPeer(id, true)));
+socket.on('peer-joined', id => createPeer(id, false)); // Passive connect
 
 socket.on('peer-left', id => {
     if (peers[id]) { peers[id].destroy(); delete peers[id]; }
     const el = document.getElementById(`dev-${id}`);
     if (el) el.remove();
-    if (Object.keys(peers).length === 0) scanMsg.style.display = 'block';
 });
 
-// --- 4. WEBRTC CORE ---
+socket.on('signal', data => {
+    if (peers[data.sender]) peers[data.sender].signal(data.signal);
+});
+
+// --- CORE P2P LOGIC ---
 function createPeer(userId, initiator) {
     if (peers[userId]) return;
 
@@ -74,33 +61,33 @@ function createPeer(userId, initiator) {
 
     p.on('signal', signal => socket.emit('signal', { target: userId, signal }));
     
-    p.on('connect', () => {
-        addDeviceUI(userId);
-    });
-
-    p.on('data', data => handleData(userId, data));
+    p.on('connect', () => addDeviceUI(userId));
     
-    // Silent Error Handling
-    p.on('error', err => console.log('Peer Error:', err));
-
+    // DATA HANDLING
+    p.on('data', data => handleIncomingData(userId, data));
+    
+    p.on('error', err => console.error("Peer error:", err));
+    
     peers[userId] = p;
 }
 
-socket.on('signal', data => {
-    if (peers[data.sender]) peers[data.sender].signal(data.signal);
-});
-
-// --- 5. DATA & UI ---
+// --- FILE HANDLING (THROTTLED) ---
 let incomingMap = {};
+let lastUpdate = 0;
 
-function handleData(userId, data) {
-    uploadOverlay.style.display = 'flex';
-    
+function handleIncomingData(userId, data) {
+    togglePanel(true);
+
     try {
         const json = JSON.parse(new TextDecoder().decode(data));
         if (json.meta) {
-            incomingMap[userId] = { name: json.meta.name, size: json.meta.size, chunks: [], received: 0 };
-            addTransferUI(userId, json.meta.name, 'Incoming');
+            incomingMap[userId] = { 
+                name: json.meta.name, 
+                size: json.meta.size, 
+                chunks: [], 
+                received: 0 
+            };
+            addTransferUI(userId, json.meta.name, 'Rx');
             return;
         }
     } catch (e) {}
@@ -110,7 +97,13 @@ function handleData(userId, data) {
 
     file.chunks.push(data);
     file.received += data.byteLength;
-    updateProgress(userId, file.received, file.size);
+
+    // THROTTLE UI UPDATES (Fix for Large Files)
+    const now = Date.now();
+    if (now - lastUpdate > 100 || file.received >= file.size) {
+        updateProgress(userId, file.received, file.size);
+        lastUpdate = now;
+    }
 
     if (file.received >= file.size) {
         const blob = new Blob(file.chunks);
@@ -125,17 +118,18 @@ function handleData(userId, data) {
     }
 }
 
-// Send File
+// SEND FILE
 fileInput.addEventListener('change', () => {
     const file = fileInput.files[0];
     if (!file || !targetPeerId) return;
 
-    addTransferUI(targetPeerId, file.name, 'Sending');
-    const peer = peers[targetPeerId];
+    togglePanel(true);
+    addTransferUI(targetPeerId, file.name, 'Tx');
     
+    const peer = peers[targetPeerId];
     peer.send(JSON.stringify({ meta: { name: file.name, size: file.size } }));
 
-    const chunkSize = 64 * 1024;
+    const chunkSize = 64 * 1024; // 64KB
     let offset = 0;
     const reader = new FileReader();
 
@@ -143,32 +137,50 @@ fileInput.addEventListener('change', () => {
         if(peer.destroyed) return;
         peer.send(e.target.result);
         offset += e.target.result.byteLength;
-        updateProgress(targetPeerId, offset, file.size);
-        if (offset < file.size) reader.readAsArrayBuffer(file.slice(offset, offset + chunkSize));
+        
+        // Throttle UI updates for sender too
+        const now = Date.now();
+        if (now - lastUpdate > 100 || offset >= file.size) {
+            updateProgress(targetPeerId, offset, file.size);
+            lastUpdate = now;
+        }
+        
+        if (offset < file.size) {
+            reader.readAsArrayBuffer(file.slice(offset, offset + chunkSize));
+        }
     };
     reader.readAsArrayBuffer(file.slice(0, chunkSize));
 });
 
-// UI Helpers
+// --- UI HELPERS ---
 function addDeviceUI(userId) {
     if (document.getElementById(`dev-${userId}`)) return;
-    scanMsg.style.display = 'none';
-
+    
     const div = document.createElement('div');
-    div.className = 'device';
+    div.className = 'device-item';
     div.id = `dev-${userId}`;
-    div.innerHTML = `<div class="device-icon">👤</div><div class="device-name">User ${userId.substr(0,4)}</div>`;
+    div.innerHTML = `
+        <div class="status-dot"></div>
+        <div class="device-icon">📱</div>
+        <div class="device-name">User ${userId.substr(0,4)}</div>
+    `;
     div.onclick = () => {
         targetPeerId = userId;
-        uploadOverlay.style.display = 'flex';
+        togglePanel(true);
     };
-    deviceList.appendChild(div);
+    deviceContainer.appendChild(div);
 }
 
 function addTransferUI(userId, name, type) {
     const div = document.createElement('div');
     div.className = 'transfer-item';
-    div.innerHTML = `<div><b>${name}</b><br><small>${type}</small></div><div class="progress-bar"><div class="progress-fill" id="bar-${userId}"></div></div>`;
+    div.innerHTML = `
+        <div class="file-icon">${type === 'Tx' ? '⬆️' : '⬇️'}</div>
+        <div class="file-details">
+            <div class="filename">${name}</div>
+            <div class="progress-track"><div class="progress-fill" id="bar-${userId}"></div></div>
+        </div>
+    `;
     transferList.prepend(div);
 }
 
