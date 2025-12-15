@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instant File Share</title>
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #0f0f13; color: white; text-align: center; margin: 0; padding: 20px; }
+        h1 { margin-bottom: 5px; background: -webkit-linear-gradient(#00d2ff, #3a7bd5); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        
+        /* Guide Box */
+        .guide { background: #1c1c21; padding: 15px; border-radius: 12px; margin: 20px auto; max-width: 400px; text-align: left; border: 1px solid #333; }
+        .guide strong { color: #00d2ff; }
+        .guide li { margin-bottom: 8px; font-size: 14px; color: #ccc; }
+
+        /* Device Radar */
+        .radar-area { min-height: 250px; display: flex; justify-content: center; align-items: center; gap: 30px; flex-wrap: wrap; margin-top: 30px; }
+        
+        .device {
+            width: 100px; height: 100px; background: #2b2b36; border-radius: 18px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s ease; position: relative;
+            border: 2px solid transparent;
+        }
+        .device:hover { transform: translateY(-5px); background: #353542; border-color: #00d2ff; }
+        .device svg { width: 40px; height: 40px; fill: #eee; margin-bottom: 8px; }
+        .device span { font-size: 12px; color: #888; }
+        
+        .searching { color: #555; font-style: italic; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+
+        /* Hidden Input */
+        #fileInput { display: none; }
+        
+        /* Success Toast */
+        #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #28a745; color: white; padding: 10px 20px; border-radius: 30px; display: none; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+    </style>
+</head>
+<body>
+
+    <h1>🚀 AirDrop Web</h1>
+    <p style="color: #666; font-size: 14px;">Peer-to-Peer Local Sharing</p>
+
+    <div class="guide">
+        <p style="margin:0 0 10px 0; font-weight:bold; color:white;">⚡ How to connect:</p>
+        <ol>
+            <li>Make sure both devices are on the <strong>Same Wi-Fi</strong>.</li>
+            <li>If outside, User A turns on <strong>Hotspot</strong>, User B connects to it.</li>
+            <li>Wait! The other device will pop up below automatically.</li>
+        </ol>
+    </div>
+
+    <div class="radar-area" id="radar">
+        <div class="searching" id="scan-msg">Scanning local network...</div>
+    </div>
+
+    <input type="file" id="fileInput">
+    <div id="toast">File Sent Successfully!</div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
+    
+    <script>
+        const socket = io();
+        const radar = document.getElementById('radar');
+        const scanMsg = document.getElementById('scan-msg');
+        const fileInput = document.getElementById('fileInput');
+        const toast = document.getElementById('toast');
+        
+        let peers = {}; // Store peer connections
+        let targetId = null;
+
+        // --- UI UPDATES ---
+        function addPeerUI(id) {
+            scanMsg.style.display = 'none';
+            if(document.getElementById(id)) return;
+
+            const div = document.createElement('div');
+            div.className = 'device';
+            div.id = id;
+            div.innerHTML = `
+                <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+                <span>Click to Share</span>
+            `;
+            div.onclick = () => { targetId = id; fileInput.click(); };
+            radar.appendChild(div);
+        }
+
+        function showToast(msg) {
+            toast.innerText = msg;
+            toast.style.display = 'block';
+            setTimeout(() => toast.style.display = 'none', 3000);
+        }
+
+        // --- SOCKET LOGIC ---
+        socket.on('peer-joined', data => addPeerUI(data.id));
+        socket.on('peers-existing', users => users.forEach(addPeerUI));
+        socket.on('peer-left', id => {
+            const el = document.getElementById(id);
+            if(el) el.remove();
+            if(radar.children.length <= 1) scanMsg.style.display = 'block';
+        });
+
+        // --- WEBRTC LOGIC ---
+        
+        // 1. SEND FILE (Initiator)
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            if (!file || !targetId) return;
+
+            const p = new SimplePeer({ initiator: true, trickle: false });
+            
+            p.on('signal', data => {
+                socket.emit('signal', { target: targetId, signal: data });
+            });
+
+            p.on('connect', () => {
+                console.log('Sending file...');
+                // Send metadata first
+                p.send(JSON.stringify({ name: file.name, size: file.size }));
+                p.send(file);
+                showToast(`Sending ${file.name}...`);
+            });
+
+            peers[targetId] = p;
+        });
+
+        // 2. RECEIVE FILE (Responder)
+        socket.on('signal', data => {
+            if(!peers[data.sender]) {
+                const p = new SimplePeer({ initiator: false, trickle: false });
+                let fileName = 'download';
+
+                p.on('signal', signal => {
+                    socket.emit('signal', { target: data.sender, signal: signal });
+                });
+
+                p.on('data', chunk => {
+                    // Check if JSON (Metadata) or File
+                    try {
+                        const meta = JSON.parse(new TextDecoder().decode(chunk));
+                        if(meta.name) { fileName = meta.name; return; }
+                    } catch(e) {}
+
+                    // Download File
+                    const blob = new Blob([chunk]);
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = fileName;
+                    document.body.appendChild(link);
+                    link.click();
+                    showToast('File Received!');
+                });
+
+                peers[data.sender] = p;
+            }
+            peers[data.sender].signal(data.signal);
+        });
+    </script>
+</body>
+</html>
