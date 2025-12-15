@@ -3,120 +3,183 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AirDrop Web</title>
+    <title>Instant Share</title>
     <style>
-        body { font-family: 'Inter', sans-serif; background: #0f0f13; color: white; text-align: center; padding: 20px; }
+        body { font-family: sans-serif; background: #121212; color: #fff; text-align: center; padding: 20px; }
+        .container { max-width: 500px; margin: auto; }
         
-        /* Debug Info */
-        .debug-info { background: #1c1c21; color: #888; padding: 10px; font-size: 12px; border-radius: 8px; display: inline-block; margin-bottom: 20px; border: 1px solid #333; }
-        .highlight { color: #00d2ff; font-weight: bold; }
+        /* HEADER */
+        h2 { color: #00d2ff; margin-bottom: 5px; }
+        .status-dot { height: 10px; width: 10px; background: #444; border-radius: 50%; display: inline-block; }
+        .connected { background: #0f0; box-shadow: 0 0 10px #0f0; }
 
-        .radar-area { min-height: 250px; display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-top: 20px; }
-        
-        .device {
-            width: 100px; height: 100px; background: #2b2b36; border-radius: 18px;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            cursor: pointer; border: 2px solid transparent; transition: 0.2s;
-        }
-        .device:hover { border-color: #00d2ff; background: #353542; }
-        .device svg { width: 40px; height: 40px; fill: #eee; margin-bottom: 5px; }
-        
-        .searching { color: #555; font-style: italic; animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
+        /* MANUAL CONNECT BOX */
+        .manual-box { background: #1e1e1e; padding: 15px; border-radius: 10px; margin: 20px 0; border: 1px solid #333; }
+        .code-display { font-size: 24px; letter-spacing: 2px; font-weight: bold; color: #ffd700; margin: 10px 0; }
+        input { padding: 10px; border-radius: 5px; border: none; width: 60%; text-align: center; font-size: 16px; }
+        button { padding: 10px 15px; background: #00d2ff; border: none; border-radius: 5px; color: #000; font-weight: bold; cursor: pointer; }
 
-        input[type="file"] { display: none; }
+        /* RADAR / DEVICES */
+        .radar { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-top: 30px; min-height: 150px; }
+        .device { background: #2a2a2a; width: 100px; padding: 15px; border-radius: 15px; cursor: pointer; border: 2px solid transparent; transition: 0.3s; }
+        .device:hover { background: #333; border-color: #00d2ff; }
+        .device.active-peer { border-color: #0f0; background: #1a331a; } /* Green when connected */
+
+        #status-msg { color: #777; font-style: italic; margin-top: 20px; }
+        
+        /* FILE INPUT */
+        .file-label { display: none; background: #00d2ff; color: #000; padding: 15px; border-radius: 8px; margin-top: 20px; cursor: pointer; font-weight: bold; }
+        .file-label:hover { opacity: 0.9; }
     </style>
 </head>
 <body>
 
-    <h2>🚀 Shared Network</h2>
+<div class="container">
+    <h2>⚡ QuickShare <span id="server-status" class="status-dot"></span></h2>
     
-    <div class="debug-info">
-        My IP (Room ID): <span id="my-ip" class="highlight">Connecting...</span>
+    <div class="manual-box">
+        <p>Your Code: <div class="code-display" id="my-code">...</div></p>
+        <p style="font-size: 14px; color: #aaa;">Don't see your friend below? Enter their code:</p>
+        <input type="number" id="partner-code" placeholder="Ex: 4582">
+        <button onclick="joinManual()">Connect</button>
     </div>
 
-    <div class="radar-area" id="radar">
-        <div class="searching" id="scan-msg">Looking for devices on same IP...</div>
-    </div>
+    <div id="status-msg">Scanning network...</div>
 
-    <input type="file" id="fileInput">
+    <div class="radar" id="radar"></div>
 
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
+    <label for="fileInput" id="send-btn" class="file-label">📂 Select File to Send</label>
+    <input type="file" id="fileInput" style="display:none">
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
+
+<script>
+    const socket = io();
+    const radar = document.getElementById('radar');
+    const sendBtn = document.getElementById('send-btn');
+    const statusMsg = document.getElementById('status-msg');
     
-    <script>
-        const socket = io();
-        const radar = document.getElementById('radar');
-        const scanMsg = document.getElementById('scan-msg');
-        const fileInput = document.getElementById('fileInput');
-        const ipDisplay = document.getElementById('my-ip');
+    let myPeer = null;      // The Active Peer Connection
+    let targetPeerId = null; 
+
+    // 1. Setup Server Connection
+    socket.on('connect', () => {
+        document.getElementById('server-status').classList.add('connected');
+    });
+
+    socket.on('my-code', code => {
+        document.getElementById('my-code').innerText = code;
+    });
+
+    // 2. Manual Join Function
+    function joinManual() {
+        const code = document.getElementById('partner-code').value;
+        if(code.length !== 4) return alert("Enter 4 digit code");
+        socket.emit('join-code', code);
+        statusMsg.innerText = "Connecting to " + code + "...";
+    }
+
+    // 3. Peer Discovery (Auto or Manual)
+    function createPeer(userId, initiator) {
+        if(myPeer) return; // Already connected
+
+        statusMsg.innerText = initiator ? "Requesting Connection..." : "Accepting Connection...";
         
-        let peers = {};
-        let targetId = null;
-
-        // 1. Show the IP the server sees
-        socket.on('your-ip', (ip) => {
-            ipDisplay.innerText = ip;
+        // STUN Servers help punch through firewalls
+        const p = new SimplePeer({
+            initiator: initiator,
+            trickle: false,
+            config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
         });
 
-        // 2. Peer Logic
-        function addPeerUI(id) {
-            scanMsg.style.display = 'none';
-            if(document.getElementById(id)) return;
-
-            const div = document.createElement('div');
-            div.className = 'device';
-            div.id = id;
-            div.innerHTML = `
-                <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
-                <span>User</span>
-            `;
-            div.onclick = () => { targetId = id; fileInput.click(); };
-            radar.appendChild(div);
-        }
-
-        socket.on('peer-joined', data => addPeerUI(data.id));
-        socket.on('peers-existing', users => users.forEach(addPeerUI));
-        socket.on('peer-left', id => {
-            const el = document.getElementById(id);
-            if(el) el.remove();
-            if(radar.children.length <= 1) scanMsg.style.display = 'block';
+        p.on('signal', data => {
+            socket.emit('signal', { target: userId, signal: data });
         });
 
-        // 3. File Transfer Logic (Same as before)
-        fileInput.addEventListener('change', () => {
-            const file = fileInput.files[0];
-            if (!file || !targetId) return;
-
-            const p = new SimplePeer({ initiator: true, trickle: false });
-            p.on('signal', data => socket.emit('signal', { target: targetId, signal: data }));
-            p.on('connect', () => {
-                p.send(JSON.stringify({ name: file.name, size: file.size }));
-                p.send(file);
-            });
-            peers[targetId] = p;
+        p.on('connect', () => {
+            statusMsg.innerText = "🟢 Connected! Ready to share.";
+            sendBtn.style.display = "inline-block"; // Show Send Button
+            
+            // Visual Update
+            const dev = document.getElementById(userId) || createDeviceUI(userId);
+            dev.classList.add('active-peer');
+            dev.innerHTML = "✅ CONNECTED";
+            
+            targetPeerId = userId;
         });
 
-        socket.on('signal', data => {
-            if(!peers[data.sender]) {
-                const p = new SimplePeer({ initiator: false, trickle: false });
-                p.on('signal', signal => socket.emit('signal', { target: data.sender, signal: signal }));
-                p.on('data', chunk => {
-                    try {
-                        const meta = JSON.parse(new TextDecoder().decode(chunk));
-                        if(meta.name) return;
-                    } catch(e) {}
-                    const blob = new Blob([chunk]);
-                    const link = document.createElement('a');
-                    link.href = URL.createObjectURL(blob);
-                    link.download = "received_file";
-                    document.body.appendChild(link);
-                    link.click();
-                });
-                peers[data.sender] = p;
-            }
-            peers[data.sender].signal(data.signal);
+        p.on('data', data => {
+            // HANDLE FILE RECEIVE
+            try {
+                const meta = JSON.parse(new TextDecoder().decode(data));
+                if(meta.name) return console.log("Incoming:", meta.name);
+            } catch(e) {} // Not JSON, is file blob
+
+            const blob = new Blob([data]);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "received_file_" + Date.now();
+            document.body.appendChild(a);
+            a.click();
+            alert("File Received Successfully!");
         });
-    </script>
+
+        myPeer = p;
+    }
+
+    // UI Helper
+    function createDeviceUI(id) {
+        if(document.getElementById(id)) return document.getElementById(id);
+        
+        const div = document.createElement('div');
+        div.className = 'device';
+        div.id = id;
+        div.innerText = "User " + id.substr(0,4);
+        div.onclick = () => {
+            // Click to initiate connection
+            createPeer(id, true);
+        };
+        radar.appendChild(div);
+        return div;
+    }
+
+    // --- SOCKET EVENTS ---
+    socket.on('peer-found', data => {
+        createDeviceUI(data.id);
+        // If they joined via manual code, they are "Initiator", so I respond (false)
+        if(data.initiator) createPeer(data.id, false);
+    });
+
+    socket.on('existing-peers', peers => peers.forEach(id => createDeviceUI(id)));
+
+    socket.on('signal', data => {
+        // If someone is calling me, answer them!
+        if(!myPeer) createPeer(data.sender, false);
+        myPeer.signal(data.signal);
+    });
+
+    // --- SEND FILE ---
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if(!file || !myPeer) return;
+
+        statusMsg.innerText = "Sending " + file.name + "...";
+        
+        // 1. Send Metadata
+        myPeer.send(JSON.stringify({ name: file.name, size: file.size }));
+        
+        // 2. Send File
+        const reader = new FileReader();
+        reader.onload = () => {
+            myPeer.send(reader.result);
+            statusMsg.innerText = "✅ File Sent!";
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+</script>
 </body>
 </html>
