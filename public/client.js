@@ -1,226 +1,165 @@
 const socket = io();
 const myCodeEl = document.getElementById('my-code');
 const radarGrid = document.getElementById('radar-grid');
-const historyList = document.getElementById('history-list');
+const transferList = document.getElementById('transfer-list');
 const fileInput = document.getElementById('fileInput');
 
-let myRoomId = null;
-let peers = {}; // Store peer connections: { socketId: PeerObj }
-let targetPeerId = null; // Who are we currently trying to send to?
+let myRoomId = Math.floor(100000 + Math.random() * 900000).toString();
+let peers = {}; 
+let targetPeerId = null; 
 
-// --- 1. INITIALIZATION ---
-
-// Generate a random 6-digit room code for myself
-myRoomId = Math.floor(100000 + Math.random() * 900000).toString();
+// --- 1. INITIAL SETUP ---
 myCodeEl.innerText = myRoomId;
-
-// Auto-join my own room so others can connect to me
 socket.emit('join-room', myRoomId);
 
-// Handle "Join" button
 document.getElementById('join-btn').addEventListener('click', () => {
     const code = document.getElementById('join-input').value;
     if(code.length === 6) {
         socket.emit('join-room', code);
-        alert(`Joined Room ${code}`);
+        // Clear the "Waiting" text
+        radarGrid.innerHTML = ''; 
     } else {
-        alert("Please enter a valid 6-digit code");
+        alert("Enter a valid 6-digit code.");
     }
 });
 
 // --- 2. SOCKET EVENTS ---
-
-// A new user connected to the room
-socket.on('user-connected', userId => {
-    createPeer(userId, true); // true = I am the initiator
-});
-
-// I joined a room, here is who is already there
+socket.on('user-connected', userId => createPeer(userId, true));
 socket.on('room-joined', data => {
-    data.peers.forEach(peerId => createPeer(peerId, false)); // false = They are waiting
+    if(data.peers.length > 0) radarGrid.innerHTML = ''; // Clear placeholder
+    data.peers.forEach(id => createPeer(id, false));
 });
 
-// Someone disconnected
-socket.on('user-disconnected', userId => {
-    if(peers[userId]) peers[userId].destroy();
-    delete peers[userId];
-    const el = document.getElementById(`peer-${userId}`);
+socket.on('user-disconnected', id => {
+    if(peers[id]) peers[id].destroy();
+    delete peers[id];
+    const el = document.getElementById(`dev-${id}`);
     if(el) el.remove();
 });
 
-// WebRTC Signal Relay
 socket.on('signal', data => {
-    if(peers[data.sender]) {
-        peers[data.sender].signal(data.signal);
-    }
+    if(peers[data.sender]) peers[data.sender].signal(data.signal);
 });
 
-// --- 3. PEER & FILE LOGIC ---
-
+// --- 3. PEER CONNECTION (THE FIX) ---
 function createPeer(userId, initiator) {
-    if(peers[userId]) return; // Already exists
-
     const p = new SimplePeer({
         initiator: initiator,
-        trickle: false
+        trickle: false,
+        config: { 
+            // GOOGLE STUN SERVERS - CRITICAL FOR CONNECTING OVER INTERNET
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' }, 
+                { urls: 'stun:global.stun.twilio.com:3478' }
+            ] 
+        }
     });
 
-    // Handle Signaling
-    p.on('signal', signal => {
-        socket.emit('signal', { target: userId, signal: signal });
-    });
+    p.on('signal', signal => socket.emit('signal', { target: userId, signal }));
+    
+    p.on('connect', () => addDeviceUI(userId));
 
-    // Connection Established
-    p.on('connect', () => {
-        addPeerUI(userId);
-    });
-
-    // Handle Incoming Data (Chunks or Metadata)
-    let incomingFile = {
-        name: null,
-        size: 0,
-        chunks: [],
-        receivedSize: 0
-    };
-
+    // Handle Data (Chunks)
+    let incoming = { name: null, size: 0, chunks: [], received: 0 };
+    
     p.on('data', data => {
-        // 1. Is it JSON Metadata? (Try-catch is fast)
         try {
-            const str = new TextDecoder().decode(data);
-            if(str.startsWith('{"meta":')) {
-                const meta = JSON.parse(str);
-                incomingFile.name = meta.meta.name;
-                incomingFile.size = meta.meta.size;
-                incomingFile.chunks = [];
-                incomingFile.receivedSize = 0;
-                
-                // Show UI Prompt
-                addToHistory(userId, incomingFile.name, "Receiving...", "incoming");
-                return; 
+            const json = JSON.parse(new TextDecoder().decode(data));
+            if(json.meta) {
+                incoming = { name: json.meta.name, size: json.meta.size, chunks: [], received: 0 };
+                addTransferUI(userId, incoming.name, "incoming");
+                return;
             }
         } catch(e) {}
 
-        // 2. It is a File Chunk
-        if(!incomingFile.name) return; // Ignore if no metadata yet
+        if(!incoming.name) return;
 
-        incomingFile.chunks.push(data);
-        incomingFile.receivedSize += data.byteLength;
+        incoming.chunks.push(data);
+        incoming.received += data.byteLength;
+        updateProgress(userId, incoming.received, incoming.size);
 
-        // Update Progress Bar in History
-        updateHistoryProgress(userId, incomingFile.receivedSize, incomingFile.size);
-
-        // 3. File Complete?
-        if(incomingFile.receivedSize >= incomingFile.size) {
-            const blob = new Blob(incomingFile.chunks);
-            downloadFile(blob, incomingFile.name);
-            
-            // Reset state for next file
-            incomingFile.name = null;
-            incomingFile.chunks = [];
+        if(incoming.received >= incoming.size) {
+            const blob = new Blob(incoming.chunks);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = incoming.name;
+            a.click();
+            incoming.name = null; // Reset
         }
     });
 
     peers[userId] = p;
 }
 
-// --- 4. UI FUNCTIONS ---
-
-function addPeerUI(userId) {
-    if(document.getElementById(`peer-${userId}`)) return;
-
-    const card = document.createElement('div');
-    card.className = 'peer-card';
-    card.id = `peer-${userId}`;
-    card.innerHTML = `
-        <div class="peer-status"></div>
-        <div class="peer-icon">👤</div>
-        <div style="font-weight:600;">User ${userId.substr(0,4)}</div>
-        <div style="font-size:12px; color:#888;">Connected</div>
+// --- 4. UI LOGIC ---
+function addDeviceUI(userId) {
+    if(document.getElementById(`dev-${userId}`)) return;
+    
+    const div = document.createElement('div');
+    div.className = 'device-card';
+    div.id = `dev-${userId}`;
+    div.innerHTML = `
+        <div class="device-icon">💻</div>
+        <div class="device-name">User ${userId.substr(0,4)}</div>
+        <div class="device-status"><div class="dot"></div> Connected</div>
     `;
-    card.onclick = () => {
+    div.onclick = () => {
         targetPeerId = userId;
         fileInput.click();
     };
-    radarGrid.appendChild(card);
+    radarGrid.appendChild(div);
 }
 
-function addToHistory(userId, fileName, status, type) {
-    const item = document.createElement('div');
-    item.className = 'history-item';
-    item.id = `hist-${userId}`; // Simple ID for update
-    item.innerHTML = `
-        <div class="history-meta">
-            <div class="file-name">${fileName}</div>
-            <div class="file-info">${type === 'incoming' ? 'From' : 'To'} User ${userId.substr(0,4)}</div>
+function addTransferUI(userId, name, type) {
+    const div = document.createElement('div');
+    div.className = 'transfer-item';
+    div.id = `trans-${userId}`;
+    div.innerHTML = `
+        <div class="file-info">
+            <div class="filename">${name}</div>
+            <div class="meta">${type === 'incoming' ? 'From' : 'To'} User ${userId.substr(0,4)}</div>
         </div>
-        <div style="text-align:right;">
-            <div style="font-size:11px; color:#888;">${status}</div>
-            <div class="progress-container" style="display:block; width:100px;">
-                <div class="progress-bar" id="prog-${userId}"></div>
-            </div>
+        <div class="progress-wrapper">
+            <div class="meta" id="txt-${userId}">0%</div>
+            <div class="progress-bg"><div class="progress-fill" id="bar-${userId}"></div></div>
         </div>
     `;
-    historyList.prepend(item);
+    transferList.prepend(div);
 }
 
-function updateHistoryProgress(userId, current, total) {
-    const bar = document.getElementById(`prog-${userId}`);
+function updateProgress(userId, current, total) {
+    const bar = document.getElementById(`bar-${userId}`);
+    const txt = document.getElementById(`txt-${userId}`);
     if(bar) {
-        const percent = Math.floor((current / total) * 100);
-        bar.style.width = percent + '%';
-        if(percent >= 100) bar.style.background = '#10b981'; // Green on done
+        const pct = Math.round((current/total)*100);
+        bar.style.width = pct + "%";
+        txt.innerText = pct + "%";
+        if(pct >= 100) txt.innerText = "Done";
     }
 }
 
-function downloadFile(blob, fileName) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-}
-
-// --- 5. SENDING FILE (CHUNKING) ---
-
-fileInput.addEventListener('change', async () => {
+// --- 5. SEND FILE ---
+fileInput.addEventListener('change', () => {
     const file = fileInput.files[0];
-    if(!file || !targetPeerId || !peers[targetPeerId]) return;
-
+    if(!file || !targetPeerId) return;
+    
     const peer = peers[targetPeerId];
+    peer.send(JSON.stringify({ meta: { name: file.name, size: file.size } }));
+    
+    addTransferUI(targetPeerId, file.name, "outgoing");
 
-    // 1. Send Metadata
-    const metaData = JSON.stringify({ meta: { name: file.name, size: file.size } });
-    peer.send(metaData);
-
-    // Add to UI
-    addToHistory(targetPeerId, file.name, "Sending...", "outgoing");
-
-    // 2. Read & Send Chunks
-    const chunkSize = 64 * 1024; // 64KB per chunk
+    const chunkSize = 64 * 1024;
     let offset = 0;
-
     const reader = new FileReader();
-
-    reader.onload = (e) => {
-        peer.send(e.target.result); // Send the chunk
+    
+    reader.onload = e => {
+        peer.send(e.target.result);
         offset += e.target.result.byteLength;
-        
-        updateHistoryProgress(targetPeerId, offset, file.size);
-
-        if (offset < file.size) {
-            readNextChunk();
-        } else {
-            console.log("File Sent Complete");
-        }
+        updateProgress(targetPeerId, offset, file.size);
+        if(offset < file.size) readNext();
     };
 
-    function readNextChunk() {
-        const slice = file.slice(offset, offset + chunkSize);
-        reader.readAsArrayBuffer(slice);
-    }
-
-    // Start sending
-    readNextChunk();
+    const readNext = () => reader.readAsArrayBuffer(file.slice(offset, offset + chunkSize));
+    readNext();
 });
