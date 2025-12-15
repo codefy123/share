@@ -1,48 +1,41 @@
 const express = require('express');
 const app = express();
 const http = require('http').Server(app);
-const io = require('socket.io')(http, {
-    cors: { origin: "*" }
-});
+const io = require('socket.io')(http, { cors: { origin: "*" } });
 
 app.set('trust proxy', true);
 app.use(express.static('public'));
 
 io.on('connection', (socket) => {
-    // 1. Generate unique 6-digit code for every user
-    const myCode = Math.floor(100000 + Math.random() * 900000).toString();
-    socket.join(myCode); // User sits in their own room waiting
-    socket.emit('init-info', { code: myCode, id: socket.id });
+    // 1. Assign a unique ID to every user
+    console.log(`User Connected: ${socket.id}`);
 
-    // 2. Handle Manual Join
-    socket.on('join-manual', (targetCode) => {
-        // Check if room exists
-        const room = io.sockets.adapter.rooms.get(targetCode);
+    // 2. Join a Specific Room (Code)
+    socket.on('join-room', (roomId) => {
+        socket.join(roomId);
+        // Tell this user who else is already here
+        const room = io.sockets.adapter.rooms.get(roomId);
+        const others = room ? Array.from(room).filter(id => id !== socket.id) : [];
         
-        if (!room || room.size === 0) {
-            return socket.emit('error-msg', "Code not found or user offline.");
-        }
-
-        // Notify the HOST that someone is joining them
-        // The HOST will be the "Initiator" of the P2P call to ensure stability
-        socket.to(targetCode).emit('request-connection', { 
-            requesterId: socket.id 
-        });
+        socket.emit('room-joined', { roomId, peers: others });
+        
+        // Tell others a new user arrived
+        socket.to(roomId).emit('user-connected', socket.id);
     });
 
     // 3. WebRTC Signaling (The Tunnel)
-    socket.on('signal', (data) => {
-        io.to(data.target).emit('signal', {
+    socket.on('signal', (payload) => {
+        io.to(payload.target).emit('signal', {
             sender: socket.id,
-            signal: data.signal
+            signal: payload.signal
         });
     });
 
     // 4. Cleanup
     socket.on('disconnect', () => {
-        // In a real app, we might notify peers here
+        io.emit('user-disconnected', socket.id);
     });
 });
 
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => console.log(`Server Ready on port ${PORT}`));
+http.listen(PORT, () => console.log(`🚀 Server Running on Port ${PORT}`));
