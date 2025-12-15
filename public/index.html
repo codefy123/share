@@ -2,158 +2,65 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>DropShare | Secure Transfer</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DropShare | Direct Connect</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --bg: #0F1115;
-            --surface: #161920;
-            --surface-hover: #1C2028;
-            --primary: #3B82F6;
-            --primary-hover: #2563EB;
-            --text-main: #FFFFFF;
-            --text-muted: #9CA3AF;
-            --border: #2D3340;
-            --success: #10B981;
-        }
-
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body { margin: 0; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text-main); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-
-        /* HEADER */
-        header {
-            padding: 16px 24px; border-bottom: 1px solid var(--border);
-            display: flex; justify-content: space-between; align-items: center; background: var(--surface);
-        }
-        .brand { font-weight: 700; font-size: 18px; letter-spacing: -0.5px; display: flex; align-items: center; gap: 8px; }
-        .brand span { color: var(--primary); }
-        .net-id { font-size: 11px; color: var(--text-muted); background: #222; padding: 4px 8px; border-radius: 4px; border: 1px solid #333; }
-
-        /* MAIN LAYOUT */
-        main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 24px; overflow-y: auto; }
-
-        /* SCANNING CARD */
-        .scan-card {
-            background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
-            width: 100%; max-width: 480px; padding: 32px; text-align: center;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.2);
-        }
-
-        .radar-animation {
-            width: 80px; height: 80px; background: rgba(59, 130, 246, 0.1); border-radius: 50%;
-            margin: 0 auto 24px auto; position: relative; display: flex; align-items: center; justify-content: center;
-        }
-        .radar-pulse {
-            position: absolute; width: 100%; height: 100%; border-radius: 50%; border: 1px solid var(--primary);
-            animation: pulse 2s infinite; opacity: 0;
-        }
-        @keyframes pulse { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(1.6); opacity: 0; } }
+        body { background: #0F1115; color: white; font-family: 'Inter', sans-serif; display: flex; flex-direction: column; align-items: center; min-height: 100vh; margin: 0; }
         
-        h2 { margin: 0 0 8px 0; font-size: 20px; font-weight: 600; }
-        p { margin: 0 0 24px 0; color: var(--text-muted); font-size: 14px; line-height: 1.5; }
+        /* HEADER */
+        .header { width: 100%; padding: 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        .status { font-size: 12px; color: #10B981; }
 
-        /* MANUAL INPUT GROUP */
-        .join-group { display: flex; gap: 12px; margin-top: 24px; border-top: 1px solid var(--border); padding-top: 24px; }
-        input {
-            background: #000; border: 1px solid var(--border); color: white; padding: 0 16px;
-            border-radius: 8px; flex: 1; height: 44px; outline: none; font-size: 14px;
-        }
-        input:focus { border-color: var(--primary); }
-        .btn-primary {
-            background: var(--primary); color: white; border: none; padding: 0 20px;
-            border-radius: 8px; font-weight: 600; cursor: pointer; height: 44px; font-size: 14px;
-        }
-        .btn-primary:active { transform: translateY(1px); }
+        /* MAIN CARD */
+        .card { background: #161920; padding: 30px; border-radius: 16px; border: 1px solid #333; margin-top: 40px; text-align: center; width: 90%; max-width: 400px; }
+        
+        h1 { margin: 0 0 10px 0; font-size: 24px; }
+        .my-code { font-size: 40px; font-weight: 800; color: #3B82F6; letter-spacing: 2px; margin: 20px 0; display: block; }
+        
+        /* INPUT AREA */
+        .input-group { display: flex; gap: 10px; margin-top: 20px; }
+        input { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #444; background: #000; color: white; text-align: center; font-size: 16px; }
+        button { background: #3B82F6; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+        button:disabled { background: #555; cursor: not-allowed; }
 
-        /* DEVICE LIST */
-        .device-list {
-            display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px;
-            width: 100%; margin-top: 20px;
-        }
-        .device-item {
-            background: #252932; border: 1px solid var(--border); border-radius: 12px;
-            padding: 16px; cursor: pointer; transition: 0.2s; position: relative;
-        }
-        .device-item:hover { border-color: var(--primary); background: var(--surface-hover); }
-        .device-icon { font-size: 24px; margin-bottom: 8px; }
-        .device-name { font-size: 12px; font-weight: 500; color: var(--text-main); }
-        .status-dot { width: 6px; height: 6px; background: var(--success); border-radius: 50%; position: absolute; top: 12px; right: 12px; }
-
-        /* FILE TRANSFER PANEL (Bottom Sheet) */
-        #transfer-panel {
-            position: fixed; bottom: 0; left: 0; width: 100%; background: var(--surface);
-            border-top: 1px solid var(--border); padding: 20px; transform: translateY(100%);
-            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); z-index: 100;
-            box-shadow: 0 -10px 40px rgba(0,0,0,0.3);
-        }
-        #transfer-panel.active { transform: translateY(0); }
-
-        .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-        .panel-title { font-weight: 600; font-size: 16px; }
-        .close-btn { background: none; border: none; color: var(--text-muted); font-size: 24px; cursor: pointer; padding: 0; }
-
-        .upload-area {
-            border: 2px dashed var(--border); border-radius: 12px; padding: 32px;
-            text-align: center; cursor: pointer; margin-bottom: 20px; transition: 0.2s;
-        }
-        .upload-area:hover { border-color: var(--primary); background: rgba(59, 130, 246, 0.05); }
-
-        /* TRANSFER LIST ITEMS */
-        .transfer-item {
-            display: flex; align-items: center; gap: 12px; padding: 12px;
-            background: #000; border-radius: 8px; margin-bottom: 8px; border: 1px solid var(--border);
-        }
-        .file-icon { font-size: 20px; }
-        .file-details { flex: 1; min-width: 0; }
-        .filename { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .filesize { font-size: 11px; color: var(--text-muted); }
-        .progress-track { width: 100%; height: 4px; background: #222; border-radius: 2px; margin-top: 6px; }
-        .progress-fill { width: 0%; height: 100%; background: var(--primary); border-radius: 2px; transition: width 0.1s linear; }
+        /* FILE TRANSFER UI */
+        #transfer-area { display: none; width: 90%; max-width: 400px; margin-top: 20px; }
+        .upload-box { border: 2px dashed #444; padding: 30px; text-align: center; border-radius: 12px; cursor: pointer; }
+        .upload-box:hover { border-color: #3B82F6; background: rgba(59, 130, 246, 0.1); }
+        
+        .status-msg { margin-top: 20px; color: #aaa; font-size: 14px; min-height: 20px; }
 
         #fileInput { display: none; }
     </style>
 </head>
 <body>
 
-<header>
-    <div class="brand">⚡ Drop<span>Share</span></div>
-    <div class="net-id" id="network-id">Connecting...</div>
-</header>
+<div class="header">
+    <div style="font-weight:bold;">DropShare</div>
+    <div class="status" id="net-status">Connecting...</div>
+</div>
 
-<main>
-    <div class="scan-card" id="scan-view">
-        <div class="radar-animation">
-            <div class="radar-pulse"></div>
-            <div style="font-size:24px;">📡</div>
-        </div>
-        
-        <h2>Looking for nearby devices...</h2>
-        <p>Ensure both devices are on the same Wi-Fi/Hotspot.<br>Your Code: <strong id="my-code" style="color:white;">...</strong></p>
-
-        <div id="device-container" class="device-list">
-            </div>
-
-        <div class="join-group">
-            <input type="number" id="manual-input" placeholder="Enter Friend's Code">
-            <button class="btn-primary" id="manual-btn">Connect</button>
-        </div>
+<div class="card" id="connect-card">
+    <div>Your Code</div>
+    <span class="my-code" id="my-code">...</span>
+    
+    <div style="font-size: 14px; color: #888;">Enter friend's code to connect</div>
+    
+    <div class="input-group">
+        <input type="number" id="friend-code" placeholder="Enter 5-digit code">
+        <button id="connect-btn">Connect</button>
     </div>
-</main>
+    
+    <div class="status-msg" id="status-msg"></div>
+</div>
 
-<div id="transfer-panel">
-    <div class="panel-header">
-        <div class="panel-title">File Transfer</div>
-        <button class="close-btn" onclick="togglePanel(false)">×</button>
+<div id="transfer-area">
+    <div class="upload-box" onclick="document.getElementById('fileInput').click()">
+        <div style="font-size:30px;">📂</div>
+        <div>Click to Send File</div>
     </div>
-
-    <div class="upload-area" onclick="document.getElementById('fileInput').click()">
-        <div style="font-size: 24px; margin-bottom: 8px;">📂</div>
-        <div style="font-size: 14px; font-weight: 500;">Tap to Upload File</div>
-        <div style="font-size: 12px; color: var(--text-muted);">or drag and drop</div>
-    </div>
-
-    <div id="transfer-list" style="max-height: 200px; overflow-y: auto;"></div>
+    <div id="progress" style="margin-top:15px; color:#888; font-size:12px;"></div>
 </div>
 
 <input type="file" id="fileInput">
@@ -161,10 +68,5 @@
 <script src="/socket.io/socket.io.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
 <script src="client.js"></script>
-<script>
-    function togglePanel(show) {
-        document.getElementById('transfer-panel').classList.toggle('active', show);
-    }
-</script>
 </body>
 </html>
