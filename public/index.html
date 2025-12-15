@@ -3,72 +3,62 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DropShare | Instant Transfer</title>
+    <title>DropShare Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --bg: #09090b; --surface: #18181b; --primary: #3b82f6; --text: #fff; --text-dim: #a1a1aa;
-        }
+        :root { --bg: #09090b; --surface: #18181b; --primary: #3b82f6; --text: #fff; --error: #ef4444; --success: #22c55e; }
         body { margin: 0; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
+        /* STATUS BAR (CRITICAL) */
+        #connection-status {
+            background: var(--error); color: white; text-align: center; padding: 5px; font-size: 12px; font-weight: bold; display: none;
+        }
+
         /* NAVBAR */
-        nav { padding: 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #27272a; }
-        .logo { font-weight: 800; font-size: 20px; background: linear-gradient(to right, #fff, #aaa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .my-code { font-family: monospace; background: #27272a; padding: 6px 12px; border-radius: 6px; font-weight: bold; color: var(--primary); }
+        nav { padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #27272a; background: var(--surface); }
+        .logo { font-weight: 800; font-size: 18px; }
+        .my-code { font-family: monospace; background: #27272a; padding: 6px 12px; border-radius: 6px; font-weight: bold; color: var(--primary); border: 1px solid #333; }
 
-        /* RADAR (Scanning Area) */
+        /* RADAR */
         .radar-container { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
-        .pulse { position: absolute; width: 200px; height: 200px; border: 1px solid #333; border-radius: 50%; animation: pulse 2s infinite; opacity: 0; z-index: 0; }
-        .pulse:nth-child(2) { animation-delay: 0.5s; width: 300px; height: 300px; }
-        
-        @keyframes pulse { 0% { transform: scale(0.5); opacity: 0; } 50% { opacity: 0.3; } 100% { transform: scale(1.2); opacity: 0; } }
+        .scan-text { margin-top: 20px; color: #666; font-size: 14px; animation: pulse 2s infinite; }
+        @keyframes pulse { 50% { opacity: 0.5; } }
 
-        .scan-msg { margin-top: 20px; color: var(--text-dim); font-size: 14px; animation: blink 1.5s infinite; }
-        @keyframes blink { 50% { opacity: 0.5; } }
-
-        /* DEVICES GRID */
-        .device-grid { display: flex; gap: 20px; z-index: 10; flex-wrap: wrap; justify-content: center; }
+        /* DEVICES */
+        .device-grid { display: flex; gap: 20px; z-index: 10; flex-wrap: wrap; justify-content: center; width: 100%; padding: 20px; }
         .device { 
-            width: 100px; height: 110px; background: var(--surface); border: 2px solid transparent; border-radius: 16px;
+            width: 100px; height: 110px; background: var(--surface); border: 2px solid #333; border-radius: 16px;
             display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s;
         }
-        .device:hover { border-color: var(--primary); transform: translateY(-5px); background: #27272a; }
+        .device:hover { border-color: var(--primary); background: #27272a; }
         .device-icon { font-size: 32px; margin-bottom: 5px; }
         .device-name { font-size: 12px; font-weight: 600; }
 
-        /* UPLOAD ZONE (Hidden by default) */
-        #upload-zone {
-            display: none; position: absolute; bottom: 0; left: 0; width: 100%; height: 350px; 
-            background: var(--surface); border-top: 1px solid #333; border-radius: 20px 20px 0 0;
-            padding: 20px; box-sizing: border-box; animation: slideUp 0.3s ease-out;
-            box-shadow: 0 -10px 30px rgba(0,0,0,0.5); z-index: 50;
-        }
-        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-
-        .drop-area {
-            border: 2px dashed #444; border-radius: 12px; height: 100px; display: flex; flex-direction: column;
-            align-items: center; justify-content: center; cursor: pointer; color: var(--text-dim); transition: 0.2s;
-        }
-        .drop-area:hover { border-color: var(--primary); color: var(--text); background: #202022; }
-
-        /* TRANSFERS LIST */
-        .transfer-list { margin-top: 15px; overflow-y: auto; height: 180px; }
-        .transfer-item { 
-            background: #000; padding: 12px; border-radius: 8px; margin-bottom: 8px; display: flex; 
-            align-items: center; justify-content: space-between; border: 1px solid #333;
-        }
-        .progress-bar { height: 4px; background: #333; width: 100px; border-radius: 2px; margin-top: 5px; }
-        .progress-fill { height: 100%; background: var(--success, #22c55e); width: 0%; transition: width 0.2s; }
-
         /* MANUAL INPUT */
-        .manual-box { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 20; }
-        input { background: #222; border: 1px solid #444; color: white; padding: 8px 12px; border-radius: 6px; outline: none; width: 120px; text-align: center; }
-        button { background: var(--primary); border: none; color: white; padding: 8px 15px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+        .manual-box { position: absolute; bottom: 30px; display: flex; gap: 8px; z-index: 20; background: var(--surface); padding: 10px; border-radius: 12px; border: 1px solid #333; }
+        input { background: #000; border: 1px solid #444; color: white; padding: 10px; border-radius: 6px; outline: none; width: 120px; text-align: center; }
+        button { background: var(--primary); border: none; color: white; padding: 10px 15px; border-radius: 6px; font-weight: 600; cursor: pointer; }
 
+        /* UPLOAD & TRANSFER UI */
+        #upload-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); z-index: 100; align-items: center; justify-content: center;
+        }
+        .upload-card {
+            background: var(--surface); width: 90%; max-width: 400px; padding: 20px; border-radius: 16px; border: 1px solid #333;
+        }
+        .transfer-item { 
+            background: #000; padding: 10px; border-radius: 8px; margin-top: 10px; border: 1px solid #333;
+        }
+        .progress-bar { height: 4px; background: #333; width: 100%; border-radius: 2px; margin-top: 8px; }
+        .progress-fill { height: 100%; background: var(--success); width: 0%; transition: width 0.2s; }
+        
         #fileInput { display: none; }
     </style>
 </head>
 <body>
+
+<div id="connection-status">🔴 Disconnected from Server - Check Internet</div>
 
 <nav>
     <div class="logo">DropShare</div>
@@ -76,13 +66,8 @@
 </nav>
 
 <div class="radar-container" id="radar">
-    <div class="pulse"></div>
-    <div class="pulse"></div>
-    
-    <div id="device-list" class="device-grid">
-        </div>
-
-    <div class="scan-msg" id="scan-text">Scanning for devices on Wi-Fi...</div>
+    <div id="device-list" class="device-grid"></div>
+    <div class="scan-text" id="scan-msg">Scanning for devices...</div>
 
     <div class="manual-box">
         <input type="number" id="manual-input" placeholder="Enter Code">
@@ -90,18 +75,20 @@
     </div>
 </div>
 
-<div id="upload-zone">
-    <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
-        <span style="font-weight:600;">File Transfer</span>
-        <span style="cursor:pointer; color:#888;" onclick="closePanel()">▼</span>
-    </div>
+<div id="upload-overlay">
+    <div class="upload-card">
+        <div style="display:flex; justify-content:space-between; margin-bottom:20px;">
+            <h3>File Transfer</h3>
+            <button onclick="closeOverlay()" style="background:none; border:none; color:white; font-size:20px; cursor:pointer;">×</button>
+        </div>
+        
+        <div onclick="document.getElementById('fileInput').click()" style="border: 2px dashed #444; padding: 30px; text-align: center; cursor: pointer; border-radius: 10px;">
+            <div style="font-size: 30px;">📂</div>
+            <div>Click to Send File</div>
+        </div>
 
-    <div class="drop-area" onclick="document.getElementById('fileInput').click()">
-        <span style="font-size:24px; margin-bottom:5px;">📂</span>
-        <span style="font-size:12px;">Click to Upload or Drag Files</span>
+        <div id="transfer-list" style="margin-top: 20px; max-height: 200px; overflow-y: auto;"></div>
     </div>
-
-    <div id="transfers" class="transfer-list"></div>
 </div>
 
 <input type="file" id="fileInput">
@@ -110,10 +97,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
 <script src="client.js"></script>
 <script>
-    function closePanel() {
-        document.getElementById('upload-zone').style.display = 'none';
-    }
+    function closeOverlay() { document.getElementById('upload-overlay').style.display = 'none'; }
 </script>
-
 </body>
 </html>
