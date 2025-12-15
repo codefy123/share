@@ -3,183 +3,234 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Instant Share</title>
+    <title>DropShare | Secure P2P</title>
     <style>
-        body { font-family: sans-serif; background: #121212; color: #fff; text-align: center; padding: 20px; }
-        .container { max-width: 500px; margin: auto; }
+        /* RESET & VERCEL THEME */
+        :root {
+            --bg: #000000;
+            --card-bg: #111111;
+            --border: #333333;
+            --text-main: #ffffff;
+            --text-dim: #888888;
+            --accent: #ffffff; 
+            --accent-text: #000000;
+            --error: #ff4d4f;
+            --success: #00b96b;
+        }
         
-        /* HEADER */
-        h2 { color: #00d2ff; margin-bottom: 5px; }
-        .status-dot { height: 10px; width: 10px; background: #444; border-radius: 50%; display: inline-block; }
-        .connected { background: #0f0; box-shadow: 0 0 10px #0f0; }
-
-        /* MANUAL CONNECT BOX */
-        .manual-box { background: #1e1e1e; padding: 15px; border-radius: 10px; margin: 20px 0; border: 1px solid #333; }
-        .code-display { font-size: 24px; letter-spacing: 2px; font-weight: bold; color: #ffd700; margin: 10px 0; }
-        input { padding: 10px; border-radius: 5px; border: none; width: 60%; text-align: center; font-size: 16px; }
-        button { padding: 10px 15px; background: #00d2ff; border: none; border-radius: 5px; color: #000; font-weight: bold; cursor: pointer; }
-
-        /* RADAR / DEVICES */
-        .radar { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; margin-top: 30px; min-height: 150px; }
-        .device { background: #2a2a2a; width: 100px; padding: 15px; border-radius: 15px; cursor: pointer; border: 2px solid transparent; transition: 0.3s; }
-        .device:hover { background: #333; border-color: #00d2ff; }
-        .device.active-peer { border-color: #0f0; background: #1a331a; } /* Green when connected */
-
-        #status-msg { color: #777; font-style: italic; margin-top: 20px; }
+        body { margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text-main); display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
         
-        /* FILE INPUT */
-        .file-label { display: none; background: #00d2ff; color: #000; padding: 15px; border-radius: 8px; margin-top: 20px; cursor: pointer; font-weight: bold; }
-        .file-label:hover { opacity: 0.9; }
+        /* LAYOUT */
+        .container { width: 100%; max-width: 480px; padding: 20px; box-sizing: border-box; margin-top: 40px; }
+        .header { margin-bottom: 40px; text-align: center; }
+        .header h1 { font-size: 24px; font-weight: 700; margin: 0; letter-spacing: -0.5px; }
+        .header p { color: var(--text-dim); font-size: 14px; margin-top: 8px; }
+
+        /* CARDS */
+        .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 24px; margin-bottom: 20px; transition: border-color 0.2s; }
+        .card:hover { border-color: #555; }
+        
+        .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin-bottom: 12px; display: block; }
+
+        /* MY CODE DISPLAY */
+        .code-display { font-size: 32px; font-weight: 700; letter-spacing: 2px; font-family: 'Courier New', monospace; display: flex; justify-content: space-between; align-items: center; }
+        .copy-btn { background: transparent; border: 1px solid var(--border); color: var(--text-dim); padding: 5px 10px; font-size: 12px; border-radius: 4px; cursor: pointer; }
+        .copy-btn:hover { color: var(--text-main); border-color: var(--text-main); }
+
+        /* INPUTS (Fixing the scroll issue) */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+
+        .input-group { display: flex; gap: 10px; margin-top: 10px; }
+        input { background: #000; border: 1px solid var(--border); color: white; padding: 12px; border-radius: 6px; font-size: 16px; width: 100%; outline: none; transition: 0.2s; }
+        input:focus { border-color: var(--accent); }
+        
+        button.primary { background: var(--accent); color: var(--accent-text); border: none; padding: 12px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: opacity 0.2s; white-space: nowrap; }
+        button.primary:hover { opacity: 0.9; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* STATUS */
+        .status-area { min-height: 20px; font-size: 14px; text-align: center; margin-top: 10px; }
+        .error-msg { color: var(--error); }
+        .success-msg { color: var(--success); }
+
+        /* FILE DROP ZONE (Hidden until connected) */
+        #drop-zone { display: none; margin-top: 20px; border: 2px dashed var(--border); padding: 40px; text-align: center; border-radius: 8px; cursor: pointer; }
+        #drop-zone:hover { border-color: var(--accent); background: #0a0a0a; }
+        #drop-zone p { pointer-events: none; color: var(--text-dim); }
+
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h2>⚡ QuickShare <span id="server-status" class="status-dot"></span></h2>
-    
-    <div class="manual-box">
-        <p>Your Code: <div class="code-display" id="my-code">...</div></p>
-        <p style="font-size: 14px; color: #aaa;">Don't see your friend below? Enter their code:</p>
-        <input type="number" id="partner-code" placeholder="Ex: 4582">
-        <button onclick="joinManual()">Connect</button>
+    <div class="container">
+        <div class="header">
+            <h1>DropShare</h1>
+            <p>Secure, peer-to-peer file transfer. No limits.</p>
+        </div>
+
+        <div class="card">
+            <span class="label">Your Secure Code</span>
+            <div class="code-display">
+                <span id="my-code">...</span>
+                <button class="copy-btn" onclick="copyCode()">COPY</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <span class="label">Connect to Peer</span>
+            <div class="input-group">
+                <input type="number" id="target-code" placeholder="Enter 6-digit code">
+                <button class="primary" id="connect-btn" onclick="connectManual()">Connect</button>
+            </div>
+            <div class="status-area" id="status-msg"></div>
+        </div>
+
+        <div id="drop-zone" onclick="document.getElementById('fileInput').click()">
+            <p>📂 <strong>Click to Upload</strong> or Drag & Drop</p>
+            <div id="transfer-status" style="margin-top:10px; color:white; font-size:12px;"></div>
+        </div>
+        
+        <input type="file" id="fileInput" style="display:none">
     </div>
 
-    <div id="status-msg">Scanning network...</div>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
 
-    <div class="radar" id="radar"></div>
+    <script>
+        const socket = io();
+        let myCode = null;
+        let peer = null;
+        let targetId = null;
 
-    <label for="fileInput" id="send-btn" class="file-label">📂 Select File to Send</label>
-    <input type="file" id="fileInput" style="display:none">
-</div>
+        const statusMsg = document.getElementById('status-msg');
+        const connectBtn = document.getElementById('connect-btn');
+        const dropZone = document.getElementById('drop-zone');
+        const transferStatus = document.getElementById('transfer-status');
 
-<script src="/socket.io/socket.io.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/simple-peer/9.11.1/simplepeer.min.js"></script>
-
-<script>
-    const socket = io();
-    const radar = document.getElementById('radar');
-    const sendBtn = document.getElementById('send-btn');
-    const statusMsg = document.getElementById('status-msg');
-    
-    let myPeer = null;      // The Active Peer Connection
-    let targetPeerId = null; 
-
-    // 1. Setup Server Connection
-    socket.on('connect', () => {
-        document.getElementById('server-status').classList.add('connected');
-    });
-
-    socket.on('my-code', code => {
-        document.getElementById('my-code').innerText = code;
-    });
-
-    // 2. Manual Join Function
-    function joinManual() {
-        const code = document.getElementById('partner-code').value;
-        if(code.length !== 4) return alert("Enter 4 digit code");
-        socket.emit('join-code', code);
-        statusMsg.innerText = "Connecting to " + code + "...";
-    }
-
-    // 3. Peer Discovery (Auto or Manual)
-    function createPeer(userId, initiator) {
-        if(myPeer) return; // Already connected
-
-        statusMsg.innerText = initiator ? "Requesting Connection..." : "Accepting Connection...";
-        
-        // STUN Servers help punch through firewalls
-        const p = new SimplePeer({
-            initiator: initiator,
-            trickle: false,
-            config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+        // 1. Initialization
+        socket.on('init-info', (data) => {
+            myCode = data.code;
+            document.getElementById('my-code').innerText = myCode;
         });
 
-        p.on('signal', data => {
-            socket.emit('signal', { target: userId, signal: data });
+        socket.on('error-msg', (msg) => {
+            statusMsg.innerText = msg;
+            statusMsg.className = "status-area error-msg";
+            connectBtn.disabled = false;
+            connectBtn.innerText = "Connect";
         });
 
-        p.on('connect', () => {
-            statusMsg.innerText = "🟢 Connected! Ready to share.";
-            sendBtn.style.display = "inline-block"; // Show Send Button
+        // 2. Connect Button Logic
+        function connectManual() {
+            const code = document.getElementById('target-code').value;
             
-            // Visual Update
-            const dev = document.getElementById(userId) || createDeviceUI(userId);
-            dev.classList.add('active-peer');
-            dev.innerHTML = "✅ CONNECTED";
+            // VALIDATION
+            if (!code) return showError("Please enter a code.");
+            if (code === myCode) return showError("You cannot connect to yourself.");
+            if (code.length < 6) return showError("Code must be 6 digits.");
+
+            // UI UPDATE
+            connectBtn.disabled = true;
+            connectBtn.innerText = "Joining...";
+            statusMsg.innerText = "";
+
+            // SEND REQUEST
+            socket.emit('join-manual', code);
+        }
+
+        // 3. Handshake Logic (The Host starts the call)
+        socket.on('request-connection', (data) => {
+            // Someone entered MY code. I will be the Initiator.
+            statusMsg.innerText = "Incoming connection...";
+            initializePeer(data.requesterId, true);
+        });
+
+        // The Joiner receives the signal and responds
+        socket.on('signal', (data) => {
+            if (!peer) {
+                initializePeer(data.sender, false);
+            }
+            peer.signal(data.signal);
+        });
+
+        // 4. WebRTC Core
+        function initializePeer(partnerId, initiator) {
+            targetId = partnerId;
             
-            targetPeerId = userId;
+            peer = new SimplePeer({
+                initiator: initiator,
+                trickle: false 
+            });
+
+            peer.on('signal', data => {
+                socket.emit('signal', { target: partnerId, signal: data });
+            });
+
+            peer.on('connect', () => {
+                statusMsg.innerText = "Connected Securely.";
+                statusMsg.className = "status-area success-msg";
+                connectBtn.innerText = "Connected";
+                dropZone.style.display = "block"; // Show Upload Area
+            });
+
+            peer.on('data', data => {
+                // FILE RECEIVING LOGIC
+                try {
+                    const meta = JSON.parse(new TextDecoder().decode(data));
+                    if(meta.name) {
+                        transferStatus.innerText = `Receiving ${meta.name}...`;
+                        return;
+                    }
+                } catch(e) {}
+
+                const blob = new Blob([data]);
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = "DropShare_File_" + Date.now();
+                document.body.appendChild(a);
+                a.click();
+                transferStatus.innerText = "✅ File Downloaded!";
+            });
+            
+            peer.on('error', err => {
+                console.error(err);
+                showError("Connection failed. Try again.");
+                connectBtn.disabled = false;
+            });
+        }
+
+        // 5. File Sending
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file || !peer) return;
+
+            transferStatus.innerText = `Sending ${file.name}...`;
+            
+            // Send Metadata first
+            peer.send(JSON.stringify({ name: file.name, size: file.size }));
+            
+            // Send File
+            const reader = new FileReader();
+            reader.onload = () => {
+                peer.send(reader.result);
+                transferStatus.innerText = "✅ File Sent!";
+            };
+            reader.readAsArrayBuffer(file);
         });
 
-        p.on('data', data => {
-            // HANDLE FILE RECEIVE
-            try {
-                const meta = JSON.parse(new TextDecoder().decode(data));
-                if(meta.name) return console.log("Incoming:", meta.name);
-            } catch(e) {} // Not JSON, is file blob
+        // Helpers
+        function showError(msg) {
+            statusMsg.innerText = msg;
+            statusMsg.className = "status-area error-msg";
+        }
 
-            const blob = new Blob([data]);
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = "received_file_" + Date.now();
-            document.body.appendChild(a);
-            a.click();
-            alert("File Received Successfully!");
-        });
-
-        myPeer = p;
-    }
-
-    // UI Helper
-    function createDeviceUI(id) {
-        if(document.getElementById(id)) return document.getElementById(id);
-        
-        const div = document.createElement('div');
-        div.className = 'device';
-        div.id = id;
-        div.innerText = "User " + id.substr(0,4);
-        div.onclick = () => {
-            // Click to initiate connection
-            createPeer(id, true);
-        };
-        radar.appendChild(div);
-        return div;
-    }
-
-    // --- SOCKET EVENTS ---
-    socket.on('peer-found', data => {
-        createDeviceUI(data.id);
-        // If they joined via manual code, they are "Initiator", so I respond (false)
-        if(data.initiator) createPeer(data.id, false);
-    });
-
-    socket.on('existing-peers', peers => peers.forEach(id => createDeviceUI(id)));
-
-    socket.on('signal', data => {
-        // If someone is calling me, answer them!
-        if(!myPeer) createPeer(data.sender, false);
-        myPeer.signal(data.signal);
-    });
-
-    // --- SEND FILE ---
-    document.getElementById('fileInput').addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if(!file || !myPeer) return;
-
-        statusMsg.innerText = "Sending " + file.name + "...";
-        
-        // 1. Send Metadata
-        myPeer.send(JSON.stringify({ name: file.name, size: file.size }));
-        
-        // 2. Send File
-        const reader = new FileReader();
-        reader.onload = () => {
-            myPeer.send(reader.result);
-            statusMsg.innerText = "✅ File Sent!";
-        };
-        reader.readAsArrayBuffer(file);
-    });
-
-</script>
+        function copyCode() {
+            navigator.clipboard.writeText(myCode);
+            alert("Code Copied!");
+        }
+    </script>
 </body>
 </html>
