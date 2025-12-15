@@ -1,6 +1,6 @@
 {
-  "name": "dropshare",
-  "version": "1.0.0",
+  "name": "dropshare-pro",
+  "version": "2.0.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
