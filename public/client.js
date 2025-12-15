@@ -1,13 +1,16 @@
-const socket = io({ transports: ['websocket', 'polling'] });
-const statusMsg = document.getElementById('status-msg');
-const connectBtn = document.getElementById('connect-btn');
-const transferArea = document.getElementById('transfer-area');
+const socket = io({ 
+    transports: ['websocket', 'polling'],
+    reconnection: true
+});
+
+const deviceContainer = document.getElementById('device-container');
+const transferList = document.getElementById('transfer-list');
 const fileInput = document.getElementById('fileInput');
 
-let peer = null; // Only one peer for manual connection
-let targetId = null;
+let peers = {};
+let targetPeerId = null;
 
-// 1. SETUP
+// --- STATUS INDICATORS ---
 socket.on('connect', () => {
     document.getElementById('net-status').innerText = "Online";
     document.getElementById('net-status').style.color = "#10B981";
@@ -22,110 +25,183 @@ socket.on('init-info', data => {
     document.getElementById('my-code').innerText = data.code;
 });
 
-socket.on('error-toast', msg => {
-    statusMsg.innerText = msg;
-    statusMsg.style.color = "#EF4444";
-    connectBtn.disabled = false;
-    connectBtn.innerText = "Connect";
+socket.on('error-toast', msg => alert(msg));
+
+// --- MANUAL CONNECT ---
+document.getElementById('manual-btn').addEventListener('click', () => {
+    const code = document.getElementById('manual-input').value;
+    if (code.length === 5) socket.emit('join-manual', code);
+    else alert("Enter 5-digit code");
 });
 
-// 2. START CONNECTION (You typed the code)
-connectBtn.addEventListener('click', () => {
-    const code = document.getElementById('friend-code').value;
-    if (code.length !== 5) return alert("Enter 5-digit code");
-
-    statusMsg.innerText = "Searching for user...";
-    connectBtn.disabled = true;
-    connectBtn.innerText = "Wait...";
-    
-    socket.emit('connect-to-peer', code);
+// --- PEER DISCOVERY ---
+socket.on('peers-found', users => users.forEach(id => createPeer(id, true)));
+socket.on('peer-joined', id => createPeer(id, false));
+socket.on('peer-left', id => {
+    if (peers[id]) { peers[id].destroy(); delete peers[id]; }
+    const el = document.getElementById(`dev-${id}`);
+    if (el) el.remove();
 });
 
-// 3. RECEIVE REQUEST (You are the Host)
-socket.on('peer-request', data => {
-    // Someone wants to connect to me! I will initiate the WebRTC call.
-    statusMsg.innerText = "Incoming connection...";
-    createPeer(data.peerId, true); // True = Initiator
-});
-
-// 4. SIGNALING
 socket.on('signal', data => {
-    if (!peer) {
-        // I am the Joiner (Passive)
-        createPeer(data.sender, false);
-    }
-    peer.signal(data.signal);
+    if (peers[data.sender]) peers[data.sender].signal(data.signal);
 });
 
-// 5. WEBRTC LOGIC
+// --- CORE P2P CONNECTION ---
 function createPeer(userId, initiator) {
-    peer = new SimplePeer({
+    if (peers[userId]) return;
+
+    const p = new SimplePeer({
         initiator: initiator,
         trickle: false,
         config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
     });
 
-    peer.on('signal', signal => socket.emit('signal', { target: userId, signal }));
-
-    peer.on('connect', () => {
-        statusMsg.innerText = "🟢 Connected!";
-        statusMsg.style.color = "#10B981";
-        transferArea.style.display = 'block';
-        document.getElementById('connect-card').style.display = 'none';
-        targetId = userId;
-    });
-
-    peer.on('data', data => handleData(data));
-    peer.on('error', err => {
-        console.error(err);
-        statusMsg.innerText = "Connection failed.";
-        connectBtn.disabled = false;
-    });
+    p.on('signal', signal => socket.emit('signal', { target: userId, signal }));
+    p.on('connect', () => addDeviceUI(userId));
+    
+    // RECEIVER LOGIC
+    p.on('data', data => handleIncomingData(userId, data));
+    
+    p.on('error', err => console.log('Peer error:', err));
+    peers[userId] = p;
 }
 
-// 6. FILE TRANSFER (Simplified)
-let incomingFile = {};
+// --- RECEIVER: HANDLE INCOMING DATA ---
+let incomingMap = {};
+let lastRxUpdate = 0;
 
-function handleData(data) {
+function handleIncomingData(userId, data) {
+    togglePanel(true);
+
     try {
         const json = JSON.parse(new TextDecoder().decode(data));
         if (json.meta) {
-            incomingFile = { name: json.meta.name, chunks: [] };
-            document.getElementById('progress').innerText = `Receiving ${json.meta.name}...`;
+            // New File Started
+            incomingMap[userId] = { 
+                name: json.meta.name, 
+                size: json.meta.size, 
+                chunks: [], 
+                received: 0 
+            };
+            addTransferUI(userId, json.meta.name, 'Rx');
             return;
         }
-    } catch(e) {}
+    } catch (e) {}
 
-    if (incomingFile.name) {
-        incomingFile.chunks.push(data);
-        const blob = new Blob(incomingFile.chunks);
+    const file = incomingMap[userId];
+    if (!file) return;
+
+    file.chunks.push(data);
+    file.received += data.byteLength;
+
+    // REAL-TIME UPDATE (Throttled to 50ms for performance)
+    const now = Date.now();
+    if (now - lastRxUpdate > 50 || file.received >= file.size) {
+        updateProgress(userId, file.received, file.size);
+        lastRxUpdate = now;
+    }
+
+    // File Complete
+    if (file.received >= file.size) {
+        const blob = new Blob(file.chunks);
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = incomingFile.name;
+        a.download = file.name;
         document.body.appendChild(a);
-        a.click();
-        document.getElementById('progress').innerText = "✅ Downloaded!";
-        incomingFile = {}; // Reset
+        a.click(); // Trigger Download
+        document.body.removeChild(a);
+        delete incomingMap[userId];
+        
+        // Show 100% Green
+        updateProgress(userId, file.size, file.size); 
     }
 }
 
+// --- SENDER: SEND FILE LOGIC ---
 fileInput.addEventListener('change', () => {
     const file = fileInput.files[0];
-    if (!file || !peer) return;
+    if (!file || !targetPeerId) return;
 
-    document.getElementById('progress').innerText = `Sending ${file.name}...`;
+    togglePanel(true);
+    addTransferUI(targetPeerId, file.name, 'Tx');
     
-    // Send Meta
-    peer.send(JSON.stringify({ meta: { name: file.name } }));
+    const peer = peers[targetPeerId];
+    
+    // 1. Send Metadata
+    peer.send(JSON.stringify({ meta: { name: file.name, size: file.size } }));
 
-    // Send File (Simple for now, non-chunked for immediate test)
-    // NOTE: For files >50MB, the previous throttled version is better, 
-    // but this is to prove connection works first.
+    // 2. Start Slicing
+    const chunkSize = 64 * 1024; // 64KB chunks
+    let offset = 0;
+    let lastTxUpdate = 0;
+    
     const reader = new FileReader();
-    reader.onload = () => {
-        peer.send(reader.result);
-        document.getElementById('progress').innerText = "✅ Sent!";
+
+    reader.onload = e => {
+        if(peer.destroyed) return; // Stop if disconnected
+
+        peer.send(e.target.result); // Send Chunk
+        offset += e.target.result.byteLength;
+        
+        // REAL-TIME UPDATE (Sender Side)
+        const now = Date.now();
+        if (now - lastTxUpdate > 50 || offset >= file.size) {
+            updateProgress(targetPeerId, offset, file.size);
+            lastTxUpdate = now;
+        }
+        
+        // Loop until finished
+        if (offset < file.size) {
+            reader.readAsArrayBuffer(file.slice(offset, offset + chunkSize));
+        }
     };
-    reader.readAsArrayBuffer(file);
+
+    // Start first chunk
+    reader.readAsArrayBuffer(file.slice(0, chunkSize));
 });
+
+// --- UI FUNCTIONS ---
+function addDeviceUI(userId) {
+    if (document.getElementById(`dev-${userId}`)) return;
+    const div = document.createElement('div');
+    div.className = 'device-item';
+    div.id = `dev-${userId}`;
+    div.innerHTML = `<div class="status-dot"></div><div class="device-icon">📱</div><div class="device-name">User ${userId.substr(0,4)}</div>`;
+    div.onclick = () => { targetPeerId = userId; togglePanel(true); };
+    deviceContainer.appendChild(div);
+}
+
+function addTransferUI(userId, name, type) {
+    const div = document.createElement('div');
+    div.className = 'transfer-item';
+    // Unique ID for the progress bar based on User ID
+    div.innerHTML = `
+        <div style="font-size:20px;">${type === 'Tx' ? '⬆️' : '⬇️'}</div>
+        <div style="flex:1; min-width:0;">
+            <div style="font-size:13px; font-weight:500;">${name}</div>
+            <div class="progress-track">
+                <div class="progress-fill" id="bar-${userId}"></div>
+            </div>
+            <div style="font-size:10px; color:#888; text-align:right;" id="txt-${userId}">0%</div>
+        </div>
+    `;
+    transferList.prepend(div);
+}
+
+function updateProgress(userId, current, total) {
+    const bar = document.getElementById(`bar-${userId}`);
+    const txt = document.getElementById(`txt-${userId}`);
+    
+    if (bar && txt) {
+        const percent = Math.round((current / total) * 100);
+        bar.style.width = percent + "%";
+        txt.innerText = percent + "%";
+        
+        if(percent >= 100) {
+            bar.style.background = "#10B981"; // Turn Green on Finish
+            txt.innerText = "Complete";
+        }
+    }
+}
